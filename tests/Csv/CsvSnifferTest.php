@@ -61,10 +61,12 @@ final class CsvSnifferTest extends TestCase
         $this->assertSame('UTF-8', (new CsvSniffer)->sniff($path, 11)->encoding);
     }
 
-    public function test_windows_1250_is_chosen_when_cp1250_only_letters_are_present(): void
+    public function test_typographic_punctuation_without_caron_letters_is_windows_1250(): void
     {
-        // 0x8A is a letter in Windows-1250 and a control code in ISO-8859-2.
-        $this->assertSame('Windows-1250', (new CsvSniffer)->sniff(Fixtures::file("a;b\n\x8A;1\n", 'csv'))->encoding);
+        // 0x84, 0x93, 0x94 and 0x96 are quotes and a dash in Windows-1250, control codes in ISO-8859-2.
+        $path = Fixtures::file("a;b\n\x84x\x93 \x94y\x94;\x96\n", 'csv');
+
+        $this->assertSame('Windows-1250', (new CsvSniffer)->sniff($path)->encoding);
     }
 
     public function test_delimiter_with_decimal_commas_and_quoted_separators(): void

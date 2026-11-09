@@ -65,6 +65,28 @@ final class CsvReaderTest extends TestCase
         $this->assertSame(['ő', '1'], $rows[2]);
     }
 
+    public function test_iso_8859_2_is_reachable_through_the_override(): void
+    {
+        $rows = iterator_to_array((new CsvReader(Fixtures::file("a;b\n\xF5;1\n", 'csv'), new ReadOptions(csvEncoding: 'ISO-8859-2')))->rows());
+
+        $this->assertSame(['ő', '1'], $rows[2]);
+    }
+
+    public function test_concurrent_generators_are_independent_and_close_releases_all(): void
+    {
+        $reader = new CsvReader(Fixtures::committed('csv/utf8-bom-comma.csv'), new ReadOptions);
+        $first = $reader->rows();
+        $second = $reader->rows();
+
+        $this->assertSame(['id', 'name'], $first->current());
+        $this->assertSame(['id', 'name'], $second->current());
+        $first->next();
+        $this->assertSame(['1', 'Alice'], $first->current());
+        $this->assertSame(['id', 'name'], $second->current());
+
+        $reader->close();
+    }
+
     public function test_empty_lines_skipped_and_row_numbers_preserved(): void
     {
         $path = Fixtures::file("a,b\n1,2\n\n3,4\n", 'csv');

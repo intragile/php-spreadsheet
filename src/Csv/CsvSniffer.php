@@ -50,17 +50,9 @@ final class CsvSniffer
             return ['UTF-8', 0];
         }
 
-        // 0x8A, 0x8E, 0x9A and 0x9E are the letters S/Z with caron in Windows-1250 but C1 control
-        // codes in ISO-8859-2. Without any byte in 0x80-0x9F the two are indistinguishable and
-        // Windows-1250 is what Excel writes on Hungarian systems.
-        if (preg_match('/[\x8A\x8E\x9A\x9E]/', $sample) === 1) {
-            return ['Windows-1250', 0];
-        }
-
-        if (preg_match('/[\x80-\x9F]/', $sample) === 1) {
-            return ['ISO-8859-2', 0];
-        }
-
+        // Windows-1250 is what Excel writes on Hungarian systems. ISO-8859-2 cannot be told apart
+        // reliably (its letters share bytes with Windows-1250 and its 0x80-0x9F range is unused),
+        // so it is only available through ReadOptions::csvEncoding.
         return ['Windows-1250', 0];
     }
 

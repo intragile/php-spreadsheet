@@ -23,8 +23,8 @@ final class CsvReader implements Reader
 
     private readonly CsvDialect $dialect;
 
-    /** @var resource|null */
-    private $handle = null;
+    /** @var array<int, resource> */
+    private array $handles = [];
 
     public function __construct(private readonly string $path, ReadOptions $options)
     {
@@ -67,10 +67,13 @@ final class CsvReader implements Reader
 
     public function close(): void
     {
-        if ($this->handle !== null) {
-            fclose($this->handle);
-            $this->handle = null;
+        foreach ($this->handles as $handle) {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
         }
+
+        $this->handles = [];
     }
 
     /**
@@ -79,7 +82,8 @@ final class CsvReader implements Reader
     private function stream(): Generator
     {
         $handle = $this->open();
-        $this->handle = $handle;
+        $id = (int) $handle;
+        $this->handles[$id] = $handle;
 
         try {
             $number = 0;
@@ -97,11 +101,11 @@ final class CsvReader implements Reader
                 yield $number => $cells;
             }
         } finally {
-            if ($this->handle === $handle) {
-                $this->handle = null;
-            }
+            unset($this->handles[$id]);
 
-            fclose($handle);
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
         }
     }
 
