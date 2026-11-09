@@ -3,3 +3,5 @@
 /.superpowers/
 /composer.lock
 /vendor/
+/bench/vendor/
+/bench/var/

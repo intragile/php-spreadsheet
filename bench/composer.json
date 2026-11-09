@@ -1,0 +1,19 @@
+{
+    "name": "intragile/php-spreadsheet-bench",
+    "description": "Benchmark harness for intragile/php-spreadsheet",
+    "type": "project",
+    "license": "MIT",
+    "repositories": [
+        { "type": "path", "url": "../", "options": { "symlink": true } }
+    ],
+    "require": {
+        "php": "^8.3",
+        "intragile/php-spreadsheet": "*@dev",
+        "maatwebsite/excel": "^4.0",
+        "spatie/simple-excel": "^3.11",
+        "orchestra/testbench": "*"
+    },
+    "config": { "sort-packages": true },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
