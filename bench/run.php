@@ -9,7 +9,6 @@ declare(strict_types=1);
  * Usage: php run.php [--rows=100000,1000000] [--libs=ours,spatie,maatwebsite]
  *                    [--scenarios=W1,W2,W3,R1,R2,X1] [--timeout=600] [--out=results.json]
  */
-
 date_default_timezone_set('UTC');
 
 $options = ['rows' => '100000,1000000', 'libs' => 'ours,spatie,maatwebsite', 'scenarios' => 'W1,W2,W3,R1,R2,X1', 'timeout' => '600', 'out' => __DIR__.'/results.json'];
@@ -61,7 +60,7 @@ function stamp(): string
 /**
  * Runs a command with a hard wall-clock limit.
  *
- * @param list<string> $command
+ * @param  list<string>  $command
  * @return array{stdout: string, stderr: string, exit: int, timed_out: bool, seconds: float}
  */
 function runLimited(array $command, int $timeout): array

@@ -19,6 +19,8 @@ use Maatwebsite\Excel\Concerns\WithColumnFormatting;
 use Maatwebsite\Excel\Concerns\WithColumnWidths;
 use Maatwebsite\Excel\Concerns\WithCustomChunkSize;
 use Maatwebsite\Excel\Concerns\WithStyles;
+use Maatwebsite\Excel\Excel;
+use Maatwebsite\Excel\ExcelServiceProvider;
 use Maatwebsite\Excel\Row as MwRow;
 use OpenSpout\Common\Entity\Style\Border;
 use OpenSpout\Common\Entity\Style\BorderName;
@@ -27,6 +29,7 @@ use OpenSpout\Common\Entity\Style\BorderStyle;
 use OpenSpout\Common\Entity\Style\BorderWidth;
 use OpenSpout\Common\Entity\Style\Color;
 use OpenSpout\Common\Entity\Style\Style as SpoutStyle;
+use Orchestra\Testbench\Foundation\Application;
 use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use Spatie\SimpleExcel\SimpleExcelReader;
@@ -152,14 +155,14 @@ function bootLaravel(): void
         is_dir(VAR_DIR.$dir) || mkdir(VAR_DIR.$dir, 0777, true);
     }
 
-    $app = Orchestra\Testbench\Foundation\Application::create(
+    $app = Application::create(
         basePath: VAR_DIR.'/laravel',
-        options: ['extra' => ['providers' => [Maatwebsite\Excel\ExcelServiceProvider::class]]],
+        options: ['extra' => ['providers' => [ExcelServiceProvider::class]]],
     );
     $app['config']->set('filesystems.disks.bench', ['driver' => 'local', 'root' => VAR_DIR]);
     $app['config']->set('excel.temporary_files.local_path', VAR_DIR.'/tmp-mw');
     // Resolve the service now so the framework boot cost is part of the baseline.
-    $app->make(Maatwebsite\Excel\Excel::class);
+    $app->make(Excel::class);
 }
 
 /** Writes $rows rows of benchmark data into $path. */
@@ -209,13 +212,13 @@ function produceFile(string $lib, string $scenario, string $path, int $rows): vo
     $export = $scenario === 'W2'
         ? new MwStyledExport($rows)
         : new MwExport($rows, $ext === 'csv', false);
-    app(Maatwebsite\Excel\Excel::class)->store($export, basename($path), 'bench');
+    app(Excel::class)->store($export, basename($path), 'bench');
 }
 
 /**
  * Streams every row of $path through $callback(list<mixed> $row) with the given library.
  *
- * @param Closure(array<int, mixed>): void $callback
+ * @param  Closure(array<int, mixed>): void  $callback
  */
 function streamRows(string $lib, string $path, Closure $callback): void
 {
@@ -240,7 +243,7 @@ function streamRows(string $lib, string $path, Closure $callback): void
     }
 
     bootLaravel();
-    app(Maatwebsite\Excel\Excel::class)->import(new MwImport($callback), basename($path), 'bench');
+    app(Excel::class)->import(new MwImport($callback), basename($path), 'bench');
 }
 
 // ---------------------------------------------------------------------------------------------

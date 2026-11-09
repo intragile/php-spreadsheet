@@ -138,30 +138,24 @@ final class XlsxWriter implements Writer
             $id = $rowStyle === null ? 0 : $this->styles->idFor($rowStyle);
             $s = $id === 0 ? '' : ' s="'.$id.'"';
 
-            // Cells carry no reference while they are contiguous; the first cell after a skipped
-            // one names its column, so readers place it correctly. This keeps the sheet small.
-            $plain = '<c'.$s;
-            $gap = false;
+            // Every cell names its reference; readers that count unreferenced cells by position
+            // would otherwise misplace the cells that follow a skipped one.
             $column = 0;
             $xml = '<row r="'.$r.'">';
 
             foreach ($values as $value) {
                 if (($value === null || $value === '') && $s === '') {
                     $column++;
-                    $gap = true;
 
                     continue;
                 }
 
-                if ($gap) {
-                    $at = ' r="'.$this->letter($column).$r.'"';
-                    $c = '<c'.$at.$s;
-                    $gap = false;
-                } else {
-                    $at = '';
-                    $c = $plain;
+                if ($column > ColumnName::MAX_INDEX) {
+                    throw new SpreadsheetException(sprintf('Row %d has more than %d cells; a sheet holds at most %d columns.', $r, ColumnName::MAX_INDEX + 1, ColumnName::MAX_INDEX + 1));
                 }
 
+                $at = ' r="'.$this->letter($column).$r.'"';
+                $c = '<c'.$at.$s;
                 $column++;
 
                 if (is_string($value)) {
@@ -177,9 +171,7 @@ final class XlsxWriter implements Writer
                 } elseif ($value instanceof DateTimeInterface) {
                     $xml .= $this->date($at, $value, $rowStyle);
                 } elseif ($value instanceof Cell) {
-                    $cell = $this->cell($at, $value, $rowStyle);
-                    $gap = $cell === '';
-                    $xml .= $cell;
+                    $xml .= $this->cell($at, $value, $rowStyle);
                 } else {
                     throw new InvalidArgumentException(sprintf('Unsupported cell value of type %s in column %d of row %d.', get_debug_type($value), $column, $r));
                 }

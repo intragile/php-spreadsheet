@@ -23,9 +23,9 @@ Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 
 | Rows | Library | Status | Seconds | Peak MB | Over baseline MB | RSS MB | Rows/s |
 |---:|---|---|---:|---:|---:|---:|---:|
-| 2000 | intragile/php-spreadsheet | ok | 0.03 | 4.0 | 0.0 | 29.7 | 58 824 |
-| 2000 | spatie/simple-excel | ok | 0.12 | 4.0 | 0.0 | 29.9 | 16 393 |
-| 2000 | maatwebsite/excel | ok | 0.34 | 54.0 | 38.0 | 61.5 | 5 848 |
+| 2000 | intragile/php-spreadsheet | ok | 0.03 | 4.0 | 0.0 | 29.9 | 76 923 |
+| 2000 | spatie/simple-excel | ok | 0.12 | 4.0 | 0.0 | 30.1 | 17 094 |
+| 2000 | maatwebsite/excel | ok | 0.37 | 54.0 | 38.0 | 61.7 | 5 450 |
 
 - All libraries write the same 10 columns from the same lazy generator (the generator cost is identical for everyone).
 - maatwebsite has no date cell type: the date column is written as a serial number plus a `yyyy-mm-dd` column format (`WithColumnFormatting`), which the other two libraries do natively. That is extra work for maatwebsite that is necessary to produce an equivalent file.
@@ -36,9 +36,9 @@ Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 
 | Rows | Library | Status | Seconds | Peak MB | Over baseline MB | RSS MB | Rows/s |
 |---:|---|---|---:|---:|---:|---:|---:|
-| 2000 | intragile/php-spreadsheet | ok | 0.03 | 4.0 | 0.0 | 29.7 | 80 000 |
-| 2000 | spatie/simple-excel (partial) | ok | 0.11 | 6.0 | 2.0 | 29.9 | 18 182 |
-| 2000 | maatwebsite/excel | ok | 0.33 | 54.0 | 38.0 | 62.5 | 6 042 |
+| 2000 | intragile/php-spreadsheet | ok | 0.03 | 4.0 | 0.0 | 30.0 | 66 667 |
+| 2000 | spatie/simple-excel (partial) | ok | 0.11 | 6.0 | 2.0 | 29.7 | 18 182 |
+| 2000 | maatwebsite/excel | ok | 0.35 | 54.0 | 38.0 | 62.2 | 5 780 |
 
 - **spatie is partial**: it applies the header style (bold, fill, border) but NOT the number formats on 2 columns and NOT the column widths, so it does less work than the other two.
 - ours: header `Style` row, `Cell::of` with a number format on columns 2 and 8, column widths for all 10 columns. maatwebsite: `WithStyles` (header row), `WithColumnFormatting` (columns B, E, H), `WithColumnWidths`.
@@ -48,9 +48,9 @@ Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 
 | Rows | Library | Status | Seconds | Peak MB | Over baseline MB | RSS MB | Rows/s |
 |---:|---|---|---:|---:|---:|---:|---:|
-| 2000 | intragile/php-spreadsheet | ok | 0.01 | 4.0 | 0.0 | 27.6 | 153 846 |
-| 2000 | spatie/simple-excel | ok | 0.02 | 4.0 | 0.0 | 27.9 | 90 909 |
-| 2000 | maatwebsite/excel | ok | 0.19 | 34.0 | 18.0 | 56.8 | 10 695 |
+| 2000 | intragile/php-spreadsheet | ok | 0.01 | 4.0 | 0.0 | 28.0 | 153 846 |
+| 2000 | spatie/simple-excel | ok | 0.02 | 4.0 | 0.0 | 27.9 | 83 333 |
+| 2000 | maatwebsite/excel | ok | 0.20 | 34.0 | 18.0 | 58.0 | 9 852 |
 
 - maatwebsite writes the date as text `Y-m-d` (the others format dates themselves); booleans are written in each library's own CSV representation.
 - spatie/OpenSpout and ours stream to the file; maatwebsite builds a PhpSpreadsheet sheet first.
@@ -59,11 +59,11 @@ Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 
 | Rows | Library | Status | Seconds | Peak MB | Over baseline MB | RSS MB | Rows/s |
 |---:|---|---|---:|---:|---:|---:|---:|
-| 2000 | intragile/php-spreadsheet | ok | 0.03 | 6.0 | 2.0 | 28.6 | 62 500 |
-| 2000 | spatie/simple-excel | ok | 0.17 | 6.0 | 2.0 | 29.0 | 11 561 |
-| 2000 | maatwebsite/excel | ok | 0.41 | 30.0 | 14.0 | 82.9 | 4 914 |
+| 2000 | intragile/php-spreadsheet | ok | 0.03 | 6.0 | 2.0 | 29.2 | 58 824 |
+| 2000 | spatie/simple-excel | ok | 0.18 | 6.0 | 2.0 | 29.8 | 10 989 |
+| 2000 | maatwebsite/excel | ok | 0.42 | 30.0 | 14.0 | 80.2 | 4 717 |
 
-- The input file is produced once by the IntrAgile writer (no `r` attributes on contiguous cells, no `<dimension>`, inline strings). This favours no library on parsing speed, but see X1: it was checked that all three libraries read it with the same row count and identical values.
+- The input file is produced once by the IntrAgile writer (cell references on every cell, no `<dimension>`, inline strings). This favours no library on parsing speed, but see X1: it was checked that all three libraries read it with the same row count and identical values.
 - Every library iterates all rows; the checksum (row count and sum of the id column) is computed in the callback and verified, so lazily-skipped parsing would be detected.
 - maatwebsite reads with `OnEachRow` + `WithChunkReading(1000)` (raw values, no number-format rendering, no models or database). spatie reads with `noHeaderRow()` so it returns the same number of rows.
 
@@ -71,33 +71,22 @@ Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 
 | Rows | Library | Status | Seconds | Peak MB | Over baseline MB | RSS MB | Rows/s |
 |---:|---|---|---:|---:|---:|---:|---:|
-| 2000 | intragile/php-spreadsheet | ok | 0.01 | 4.0 | 0.0 | 27.9 | 333 333 |
-| 2000 | spatie/simple-excel | ok | 0.02 | 6.0 | 2.0 | 28.4 | 95 238 |
-| 2000 | maatwebsite/excel | ok | 0.33 | 28.0 | 12.0 | 52.7 | 6 061 |
+| 2000 | intragile/php-spreadsheet | ok | 0.01 | 4.0 | 0.0 | 27.7 | 333 333 |
+| 2000 | spatie/simple-excel | ok | 0.02 | 6.0 | 2.0 | 28.8 | 95 238 |
+| 2000 | maatwebsite/excel | ok | 0.33 | 28.0 | 12.0 | 52.9 | 6 042 |
 
 - CSV input produced by the IntrAgile writer; comma-separated, UTF-8. Delimiter and encoding are not given to any library (ours sniffs, the others use their defaults).
 - Values are compared as strings; the checksum is the sum of the id column.
 
 ## X1 Cross-reader correctness (10,000 rows)
 
-Three fixtures are written by the IntrAgile writer: a plain file and a styled file, both with null gaps in the middle of a row (and at the end of some rows), and the R1 input shape without gaps. Each library reads all three and every cell of every row is compared with the generated data (not only samples; the first row, a middle row, the last row and the cell right after a gap are included). The fixtures use cells without `r` attributes on contiguous cells and no `<dimension>` element.
+Three fixtures are written by the IntrAgile writer: a plain file and a styled file, both with null gaps in the middle of a row (and at the end of some rows), and the R1 input shape without gaps. Each library reads all three and every cell of every row is compared with the generated data (not only samples; the first row, a middle row, the last row and the cell right after a gap are included). The fixtures have no `<dimension>` element.
 
 | Library | Verdict | plain + gaps | styled + gaps | R1 input |
 |---|---|---|---|---|
 | intragile/php-spreadsheet | ok | 10000 rows, 0 mismatched cells | 10000 rows, 0 mismatched cells | 10000 rows, 0 mismatched cells |
 | spatie/simple-excel | ok | 10000 rows, 0 mismatched cells | 10000 rows, 0 mismatched cells | 10000 rows, 0 mismatched cells |
-| maatwebsite/excel | MISMATCH | 10000 rows, 25240 mismatched cells | 10000 rows, 21763 mismatched cells | 10000 rows, 0 mismatched cells |
-
-First mismatches for maatwebsite/excel:
-
-- plain-gaps: row 3 col 4: expected null NULL, got bool false
-- plain-gaps: row 3 col 5: expected date 2026-02-03 00:00:00, got int 486940
-- plain-gaps: row 3 col 6: expected bool false, got float 536.4274
-- plain-gaps: row 3 col 7: expected int 486940, got string 'njutgopdb twvxzyq'
-- plain-gaps: row 3 col 8: expected float 536.4274, got string 'Row 3 / wqblntom'
-- plain-gaps: row 3 col 9: expected string 'njutgopdb twvxzyq', got null NULL
-
-Diagnosis (inspected by hand in the fixture XML and in PhpSpreadsheet's `Reader\Xlsx::loadSheetData`): the IntrAgile writer puts an `r` attribute only on the first cell after a gap and none on the cells that follow it. The spec allows that, and the IntrAgile reader and OpenSpout resynchronise on the explicit `r`, but PhpSpreadsheet (the engine behind maatwebsite/excel) counts cells without `r` positionally and does not resynchronise, so every cell after a gap lands in the wrong column. Files without gaps are read correctly by all three. This is a compatibility defect of the writer, not a benchmark artefact.
+| maatwebsite/excel | ok | 10000 rows, 0 mismatched cells | 10000 rows, 0 mismatched cells | 10000 rows, 0 mismatched cells |
 
 ## Scenario equivalence summary
 

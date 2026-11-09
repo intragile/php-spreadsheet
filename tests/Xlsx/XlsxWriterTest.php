@@ -115,7 +115,7 @@ final class XlsxWriterTest extends TestCase
 
         $sheet = self::part($path, 'xl/worksheets/sheet1.xml');
         $this->assertSame(300, substr_count($sheet, 's="1"'));
-        $this->assertStringContainsString('<row r="101"><c t="inlineStr">', $sheet);
+        $this->assertStringContainsString('<row r="101"><c r="A101" t="inlineStr">', $sheet);
     }
 
     public function test_all_style_properties_serialized(): void
@@ -191,7 +191,7 @@ final class XlsxWriterTest extends TestCase
 
         // A styled empty cell keeps the row style, so header fills run across blank columns.
         $this->assertStringContainsString(
-            '<row r="1"><c s="1" t="inlineStr"><is><t>row</t></is></c><c s="2" t="inlineStr"><is><t>cell</t></is></c><c s="1"/></row>',
+            '<row r="1"><c r="A1" s="1" t="inlineStr"><is><t>row</t></is></c><c r="B1" s="2" t="inlineStr"><is><t>cell</t></is></c><c r="C1" s="1"/></row>',
             $sheet,
         );
         $italicFont = self::nth($styles, '/m:styleSheet/m:fonts/m:font', (int) self::nth($styles, '/m:styleSheet/m:cellXfs/m:xf', 2)->getAttribute('fontId'));
@@ -209,10 +209,27 @@ final class XlsxWriterTest extends TestCase
 
         $sheet = self::part($path, 'xl/worksheets/sheet1.xml');
 
-        $this->assertStringContainsString('<row r="1"><c><v>1</v></c><c r="C1"><v>3</v></c><c r="E1"><v>5</v></c></row>', $sheet);
+        $this->assertStringContainsString('<row r="1"><c r="A1"><v>1</v></c><c r="C1"><v>3</v></c><c r="E1"><v>5</v></c></row>', $sheet);
         $this->assertStringContainsString('<row r="2"><c r="B2" t="inlineStr">', $sheet);
-        $this->assertStringContainsString('<row r="3"><c r="B3" t="inlineStr"><is><t>y</t></is></c><c t="inlineStr">', $sheet);
+        $this->assertStringContainsString('<row r="3"><c r="B3" t="inlineStr"><is><t>y</t></is></c><c r="C3" t="inlineStr">', $sheet);
         $this->assertSame([1 => [1, null, 3, null, 5], 2 => [null, 'x'], 3 => [null, 'y', 'z']], self::readRows($path));
+    }
+
+    public function test_every_cell_of_a_gapped_row_carries_its_reference(): void
+    {
+        $path = Fixtures::path('xlsx');
+        (new XlsxWriter($path))
+            ->addRow([1, null, null, 'a', true, null, 2.5, new DateTimeImmutable('2024-01-02'), Cell::formula('=A1'), 'z'])
+            ->close();
+
+        $sheet = self::xpath(self::part($path, 'xl/worksheets/sheet1.xml'));
+        $refs = [];
+        foreach (self::query($sheet, '//m:row[@r="1"]/m:c') as $c) {
+            $this->assertInstanceOf(DOMElement::class, $c);
+            $refs[] = $c->getAttribute('r');
+        }
+
+        $this->assertSame(['A1', 'D1', 'E1', 'G1', 'H1', 'I1', 'J1'], $refs);
     }
 
     public function test_too_many_columns_throws_and_aborts(): void
@@ -702,10 +719,7 @@ final class XlsxWriterTest extends TestCase
     {
         $sheet = self::xpath(self::part($path, 'xl/worksheets/sheet1.xml'));
         $styles = self::xpath(self::part($path, 'xl/styles.xml'));
-        // Cells of a row without gaps carry no reference, so the cell is found by position.
-        $row = ltrim($cell, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ');
-        $position = ColumnName::toIndex($cell) + 1;
-        $xf = self::nth($styles, '/m:styleSheet/m:cellXfs/m:xf', (int) self::attr($sheet, '//m:row[@r="'.$row.'"]/m:c['.$position.']', 's'));
+        $xf = self::nth($styles, '/m:styleSheet/m:cellXfs/m:xf', (int) self::attr($sheet, '//m:c[@r="'.$cell.'"]', 's'));
         $id = $xf->getAttribute('numFmtId');
         self::assertSame('1', $xf->getAttribute('applyNumberFormat'));
 

@@ -7,7 +7,6 @@ declare(strict_types=1);
  *
  * Usage: php report.php [--in=results.json] [--out=RESULTS.md] [--smoke]
  */
-
 $in = __DIR__.'/results.json';
 $out = __DIR__.'/RESULTS.md';
 $smoke = false;
@@ -67,7 +66,7 @@ $notes = [
         'spatie/OpenSpout and ours stream to the file; maatwebsite builds a PhpSpreadsheet sheet first.',
     ],
     'R1' => [
-        'The input file is produced once by the IntrAgile writer (no `r` attributes on contiguous cells, no `<dimension>`, inline strings). This favours no library on parsing speed, but see X1: it was checked that all three libraries read it with the same row count and identical values.',
+        'The input file is produced once by the IntrAgile writer (cell references on every cell, no `<dimension>`, inline strings). This favours no library on parsing speed, but see X1: it was checked that all three libraries read it with the same row count and identical values.',
         'Every library iterates all rows; the checksum (row count and sum of the id column) is computed in the callback and verified, so lazily-skipped parsing would be detected.',
         'maatwebsite reads with `OnEachRow` + `WithChunkReading(1000)` (raw values, no number-format rendering, no models or database). spatie reads with `noHeaderRow()` so it returns the same number of rows.',
     ],
@@ -147,7 +146,7 @@ foreach ($scenarioTitles as $id => $title) {
 
 $out_[] = '## X1 Cross-reader correctness (10,000 rows)';
 $out_[] = '';
-$out_[] = 'Three fixtures are written by the IntrAgile writer: a plain file and a styled file, both with null gaps in the middle of a row (and at the end of some rows), and the R1 input shape without gaps. Each library reads all three and every cell of every row is compared with the generated data (not only samples; the first row, a middle row, the last row and the cell right after a gap are included). The fixtures use cells without `r` attributes on contiguous cells and no `<dimension>` element.';
+$out_[] = 'Three fixtures are written by the IntrAgile writer: a plain file and a styled file, both with null gaps in the middle of a row (and at the end of some rows), and the R1 input shape without gaps. Each library reads all three and every cell of every row is compared with the generated data (not only samples; the first row, a middle row, the last row and the cell right after a gap are included). The fixtures have no `<dimension>` element.';
 $out_[] = '';
 $out_[] = '| Library | Verdict | plain + gaps | styled + gaps | R1 input |';
 $out_[] = '|---|---|---|---|---|';
