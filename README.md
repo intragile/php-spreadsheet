@@ -2,9 +2,9 @@
 
 Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 
-**Read and write XLSX, ODS and CSV files of any size with constant memory and no Composer
-dependencies.** Rows are streamed in and out one at a time, so a million-row export costs the same
-RAM as a hundred-row one.
+**Read and write XLSX, ODS and CSV files with no Composer dependencies.** Rows are streamed in
+and out one at a time, so memory stays flat as the row count grows (bounded caches only; see
+[bench/RESULTS.md](bench/RESULTS.md)).
 
 [Magyar nyelvű leírás → README.hu.md](README.hu.md)
 
@@ -67,7 +67,7 @@ A missing or unreadable file throws `SpreadsheetException`; `.xls`, Numbers and 
 
 ## Writing
 
-The format follows the file extension (`.xlsx`, `.ods`, `.csv`), or pass a `Format`.
+The format follows the file extension (`.xlsx`/`.xlsm`, `.ods`, `.csv`/`.txt`; `.txt` is written as CSV), or pass a `Format`.
 
 ```php
 use IntrAgile\Spreadsheet\Cell;
@@ -117,7 +117,7 @@ Uploaded files are untrusted, so readers enforce limits (all configurable in `Re
 | Option | Default | Protects against |
 |---|---|---|
 | `maxZipEntries` | 5,000 | archives with huge entry counts |
-| `maxUncompressedBytes` | 4 GiB | zip bombs, counted on the bytes actually decompressed |
+| `maxUncompressedBytes` | 4 GiB | zip bombs, each entry is also capped at its declared size (at least 1 MiB) on the bytes actually decompressed |
 | `maxCompressionRatio` | 200 | entries larger than 1 MiB that expand more than 200:1 |
 
 Rows beyond 1,048,576 (the Excel and LibreOffice maximum) raise `LimitExceeded`, DOCTYPE

@@ -2,9 +2,9 @@
 
 Fejlesztő és karbantartó: [IntrAgile Kft.](https://intragile.eu)
 
-**XLSX, ODS és CSV fájlok olvasása és írása bármekkora méretben, állandó memóriával és Composer-függőségek
-nélkül.** A sorok egyenként áramlanak be és ki, így egy milliós sorszámú export ugyanannyi RAM-ot
-használ, mint egy százsoros.
+**XLSX, ODS és CSV fájlok olvasása és írása Composer-függőségek nélkül.** A sorok egyenként
+áramlanak be és ki, így a memóriahasználat a sorok számával nem nő (csak korlátos gyorsítótárak;
+lásd: [bench/RESULTS.md](bench/RESULTS.md)).
 
 [English README → README.md](README.md)
 
@@ -68,7 +68,7 @@ Hiányzó vagy olvashatatlan fájlnál `SpreadsheetException`, `.xls`, Numbers �
 
 ## Írás
 
-A formátum a fájlkiterjesztésből adódik (`.xlsx`, `.ods`, `.csv`), vagy megadható `Format`.
+A formátum a fájlkiterjesztésből adódik (`.xlsx`/`.xlsm`, `.ods`, `.csv`/`.txt`; a `.txt` CSV-ként íródik), vagy megadható `Format`.
 
 ```php
 use IntrAgile\Spreadsheet\Cell;
@@ -119,7 +119,7 @@ A feltöltött fájlok megbízhatatlanok, ezért az olvasók korlátokat érvén
 | Beállítás | Alapérték | Mi ellen véd |
 |---|---|---|
 | `maxZipEntries` | 5 000 | rengeteg bejegyzést tartalmazó archívumok |
-| `maxUncompressedBytes` | 4 GiB | zip-bombák, a ténylegesen kicsomagolt bájtokon mérve |
+| `maxUncompressedBytes` | 4 GiB | zip-bombák, minden bejegyzés a ténylegesen kicsomagolt bájtokon mérve a deklarált méretére (legalább 1 MiB) is korlátozva |
 | `maxCompressionRatio` | 200 | az 1 MiB-nál nagyobb, 200:1 fölé táguló bejegyzések |
 
 Az 1 048 576. soron (az Excel és a LibreOffice maximuma) túli sor `LimitExceeded` kivételt ad, az

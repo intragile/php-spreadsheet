@@ -75,6 +75,17 @@ final class SafeZipTest extends TestCase
         $zip->read('big.txt', 10_000_000);
     }
 
+    public function test_an_entry_inflating_beyond_its_declared_size_is_stopped_at_the_declared_cap(): void
+    {
+        $path = Fixtures::zipWithFalseSize('big.txt', str_repeat('A', 5_000_000), 1000);
+        $zip = SafeZip::open($path, self::ENTRIES, self::BYTES);
+
+        $this->expectException(LimitExceeded::class);
+        $this->expectExceptionMessage('big.txt');
+
+        $zip->read('big.txt', self::BYTES);
+    }
+
     public function test_an_xml_entry_hiding_its_real_size_is_stopped_while_streaming(): void
     {
         $xml = '<root>'.str_repeat('<a>text</a>', 500_000).'</root>';

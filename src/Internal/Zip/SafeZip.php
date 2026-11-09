@@ -136,7 +136,7 @@ final class SafeZip
                 }
 
                 if (! $entry->consume(strlen($chunk)) || ! $this->total->consume(strlen($chunk))) {
-                    throw new LimitExceeded(sprintf('The archive entry "%s" exceeds the size limit.', $name));
+                    throw new LimitExceeded(sprintf('The archive entry "%s" decompressed beyond its declared size or the size limit.', $name));
                 }
 
                 $contents .= $chunk;
@@ -199,6 +199,13 @@ final class SafeZip
 
         if (is_array($stat) && $stat['size'] > $limit) {
             throw new LimitExceeded(sprintf('The archive entry "%s" declares %d bytes; the limit is %d.', $name, $stat['size'], $limit));
+        }
+
+        // Bytes actually produced are capped at the declared size (with a floor for tiny entries),
+        // so a forged header cannot inflate far beyond what it claims. libzip may already refuse a
+        // size mismatch itself; this cap is defence in depth.
+        if (is_array($stat)) {
+            $limit = min($limit, max($stat['size'], self::RATIO_FLOOR_BYTES));
         }
 
         return new ByteBudget($limit);
