@@ -1,6 +1,7 @@
 * text=auto eol=lf
 *.pdf binary
 *.png binary
+/tests/fixtures/csv/* -text
 
 # Development files are left out of the Composer dist archive.
 /.github            export-ignore

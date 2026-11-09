@@ -104,6 +104,31 @@ function build_detect_numbers(): void
     ]);
 }
 
+function build_csv_hu_excel_1250(): void
+{
+    // Excel on a Hungarian Windows install: Windows-1250, semicolon delimiter, decimal comma, no BOM.
+    $utf8 = "Név;Összeg;Város\r\nÁrvíztűrő tükörfúrógép;1 234,56;Győr\r\nŐrmester Ügyfél;99,5;Szőlős\r\n";
+
+    file_put_contents(FIXTURES.'/csv/hu-excel-1250.csv', iconv('UTF-8', 'Windows-1250', $utf8));
+}
+
+function build_csv_utf8_bom_comma(): void
+{
+    file_put_contents(FIXTURES.'/csv/utf8-bom-comma.csv', "\xEF\xBB\xBFid,name\n1,Alice\n2,Bob\n");
+}
+
+function build_csv_utf16le_tab(): void
+{
+    $utf8 = "id\tname\r\n1\tÁrpád\r\n2\tZoltán\r\n";
+
+    file_put_contents(FIXTURES.'/csv/utf16le-tab.txt', "\xFF\xFE".mb_convert_encoding($utf8, 'UTF-16LE', 'UTF-8'));
+}
+
+function build_csv_quoted_multiline(): void
+{
+    file_put_contents(FIXTURES.'/csv/quoted-multiline.csv', "id,note\n1,\"line one\nline two\"\n2,plain\n");
+}
+
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     if (! is_dir(FIXTURES.'/detect')) {
         mkdir(FIXTURES.'/detect', 0777, true);
@@ -114,6 +139,15 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     build_detect_csv();
     build_detect_xls();
     build_detect_numbers();
+
+    if (! is_dir(FIXTURES.'/csv')) {
+        mkdir(FIXTURES.'/csv', 0777, true);
+    }
+
+    build_csv_hu_excel_1250();
+    build_csv_utf8_bom_comma();
+    build_csv_utf16le_tab();
+    build_csv_quoted_multiline();
 
     echo 'Fixtures written to '.FIXTURES."\n";
 }
