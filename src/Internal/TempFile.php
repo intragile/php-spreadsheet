@@ -18,12 +18,16 @@ final class TempFile
 
     private static bool $registered = false;
 
-    public static function create(string $prefix): string
+    /**
+     * @param  string|null  $directory  defaults to the system temp directory; pass the target's directory for same-filesystem renames
+     */
+    public static function create(string $prefix, ?string $directory = null): string
     {
-        $path = tempnam(sys_get_temp_dir(), $prefix);
+        $directory ??= sys_get_temp_dir();
+        $path = @tempnam($directory, $prefix);
 
         if ($path === false) {
-            throw new RuntimeException('Cannot create a temporary file in '.sys_get_temp_dir().'.');
+            throw new RuntimeException('Cannot create a temporary file in '.$directory.'.');
         }
 
         if (! self::$registered) {
