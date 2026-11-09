@@ -11,6 +11,17 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - Package scaffold with a hardened zip and XML reading layer.
+- `Spreadsheet::read()` and `Spreadsheet::write()` entry points with content-based format
+  detection and extension-based writer selection.
+- `ReadOptions::$maxCompressionRatio` (default 200) limiting how far a zip entry larger than 1 MiB may expand.
+
+### Changed
+
+- `ReadOptions::$maxUncompressedBytes` now defaults to 4 GiB; large legitimate ODS files exceeded 256 MB.
+
+### Security
+
+- XLSX and ODS rows beyond 1,048,576 raise `LimitExceeded`; trailing empty ODS row repeats are skipped.
 
 ---
 
