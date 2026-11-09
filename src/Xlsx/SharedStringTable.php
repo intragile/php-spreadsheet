@@ -6,6 +6,7 @@ namespace IntrAgile\Spreadsheet\Xlsx;
 
 use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
 use IntrAgile\Spreadsheet\Internal\TempFile;
+use LogicException;
 
 /**
  * The shared-string table of a workbook, held in memory up to a fixed number of entries.
@@ -52,10 +53,16 @@ final class SharedStringTable
 
     private int $blockStart = 0;
 
+    private bool $closed = false;
+
     public function __construct(private readonly int $inMemoryLimit) {}
 
     public function add(string $value): void
     {
+        if ($this->closed) {
+            throw new LogicException('The shared-string table is closed.');
+        }
+
         if ($this->memoryCount < $this->inMemoryLimit) {
             $this->memory[] = $value;
             $this->memoryCount++;
@@ -85,9 +92,15 @@ final class SharedStringTable
 
     /**
      * Returns '' for an index outside the table, as spreadsheet applications show a dangling reference.
+     *
+     * @throws LogicException once the table is closed
      */
     public function get(int $index): string
     {
+        if ($this->closed) {
+            throw new LogicException('The shared-string table is closed.');
+        }
+
         if ($index < $this->memoryCount) {
             return $index >= 0 ? $this->memory[$index] : '';
         }
@@ -148,6 +161,8 @@ final class SharedStringTable
 
     public function close(): void
     {
+        $this->closed = true;
+
         if (is_resource($this->handle)) {
             fclose($this->handle);
         }

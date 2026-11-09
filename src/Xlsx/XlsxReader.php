@@ -6,7 +6,6 @@ namespace IntrAgile\Spreadsheet\Xlsx;
 
 use DateTimeImmutable;
 use DateTimeZone;
-use Exception;
 use Generator;
 use IntrAgile\Spreadsheet\Contracts\Reader;
 use IntrAgile\Spreadsheet\Exception\CorruptFile;
@@ -18,6 +17,7 @@ use IntrAgile\Spreadsheet\Internal\Zip\SafeZip;
 use IntrAgile\Spreadsheet\ReadOptions;
 use IntrAgile\Spreadsheet\SheetInfo;
 use InvalidArgumentException;
+use LogicException;
 use Throwable;
 use XMLReader;
 
@@ -102,7 +102,13 @@ final class XlsxReader implements Reader
 
     public function rows(int|string $sheet = 0): Generator
     {
-        return $this->stream($this->sheets[$this->sheetIndex($sheet)]['part']);
+        $selected = $this->sheets[$this->sheetIndex($sheet)];
+
+        if ($selected['part'] === null) {
+            throw new CorruptFile(sprintf('The part of sheet "%s" is missing from the workbook.', $selected['name']));
+        }
+
+        return $this->stream($selected['part']);
     }
 
     public function close(): void
@@ -122,7 +128,7 @@ final class XlsxReader implements Reader
      *
      * @return Generator<int, list<int|float|string|bool|DateTimeImmutable|null>>
      */
-    private function stream(?string $part): Generator
+    private function stream(string $part): Generator
     {
         $zip = $this->open();
         $id = $this->nextArchive++;
@@ -130,8 +136,8 @@ final class XlsxReader implements Reader
         $xml = null;
 
         try {
-            if ($part === null || ! $zip->has($part)) {
-                return;
+            if (! $zip->has($part)) {
+                throw new CorruptFile('The worksheet part "'.$part.'" is missing.');
             }
 
             $strings = $this->sharedStrings ??= $this->readSharedStrings($zip);
@@ -318,7 +324,7 @@ final class XlsxReader implements Reader
                     $name = $x->localName;
 
                     if ($name === 'row') {
-                        if (self::fatalErrorPending()) {
+                        if ($xml->collectErrors()) {
                             break;
                         }
 
@@ -326,11 +332,16 @@ final class XlsxReader implements Reader
                             // Cells only ever append or overwrite an existing position.
                             /** @var list<int|float|string|bool|DateTimeImmutable|null> $row */
                             yield $rowNumber => $row;
+
+                            if (! array_key_exists($id, $this->archives)) {
+                                throw new LogicException('The reader was closed while its rows were being read.');
+                            }
+
                             $row = [];
                             $count = 0;
                         }
                     } elseif ($name === 'sheetData') {
-                        $complete = ! self::fatalErrorPending();
+                        $complete = ! $xml->collectErrors();
 
                         break;
                     }
@@ -338,8 +349,11 @@ final class XlsxReader implements Reader
             }
 
             if (! $complete) {
-                // Reports why the raw reader stopped: malformed XML or an exhausted byte budget.
+                // read() names the cause when one is known (malformed XML, exhausted byte budget);
+                // either way a sheet that stops early is truncated.
                 $xml->read();
+
+                throw new CorruptFile('The worksheet ends before </sheetData>.');
             }
         } finally {
             $xml?->close();
@@ -407,12 +421,12 @@ final class XlsxReader implements Reader
 
                             $table->add(self::unescape($text));
 
-                            if ((++$items & 1023) === 0 && self::fatalErrorPending()) {
+                            if ((++$items & 1023) === 0 && $xml->collectErrors()) {
                                 break;
                             }
                         }
                     } elseif ($nodeType === XMLReader::END_ELEMENT && $x->localName === 'sst') {
-                        $complete = ! self::fatalErrorPending();
+                        $complete = ! $xml->collectErrors();
 
                         break;
                     }
@@ -420,6 +434,8 @@ final class XlsxReader implements Reader
 
                 if (! $complete) {
                     $xml->read();
+
+                    throw new CorruptFile('The shared-string table ends before </sst>.');
                 }
             }
         } catch (Throwable $exception) {
@@ -493,49 +509,43 @@ final class XlsxReader implements Reader
     }
 
     /**
-     * Whether libxml has recorded a fatal error; otherwise empties its error list, so recoverable
-     * errors cannot pile up. Return values alone do not reveal a fatal error: libxml parses ahead
-     * of the reader, readString() returns '' and next() succeeds on a broken subtree, and after
-     * the error the reader unwinds with synthetic end tags. A pending fatal error is left for
-     * SafeXmlReader::read() to report.
+     * Parses the ISO 8601 value of a t="d" cell: a date, or a date-time with optional seconds,
+     * fraction and zone. The wall-clock time is kept, in UTC like dates converted from serials.
+     *
+     * @throws CorruptFile when the value is not such a date
      */
-    private static function fatalErrorPending(): bool
-    {
-        $last = libxml_get_last_error();
-
-        if ($last === false) {
-            return false;
-        }
-
-        if ($last->level === LIBXML_ERR_FATAL) {
-            return true;
-        }
-
-        foreach (libxml_get_errors() as $error) {
-            if ($error->level === LIBXML_ERR_FATAL) {
-                return true;
-            }
-        }
-
-        libxml_clear_errors();
-
-        return false;
-    }
-
-    private static function isoDate(?string $raw): DateTimeImmutable|string|null
+    private static function isoDate(?string $raw): ?DateTimeImmutable
     {
         if ($raw === null || $raw === '') {
             return null;
         }
 
-        try {
-            $date = new DateTimeImmutable($raw, new DateTimeZone('UTC'));
-        } catch (Exception) {
-            return $raw;
+        if (preg_match('/^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?)(?:Z|[+-]\d{2}:\d{2})?)?$/', $raw, $match) !== 1) {
+            throw new CorruptFile(sprintf('The date cell value "%s" is not an ISO 8601 date.', $raw));
         }
 
-        // Wall-clock time in UTC, like dates converted from serial numbers.
-        return new DateTimeImmutable($date->format('Y-m-d H:i:s'), new DateTimeZone('UTC'));
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $match[1], new DateTimeZone('UTC'));
+
+        // createFromFormat() rolls 2025-02-30 over to March; a round trip catches it.
+        if ($date === false || $date->format('Y-m-d') !== $match[1]) {
+            throw new CorruptFile(sprintf('The date cell value "%s" is not a valid date.', $raw));
+        }
+
+        if (! isset($match[2])) {
+            return $date;
+        }
+
+        $parts = explode(':', $match[2]);
+        [$hour, $minute] = [(int) $parts[0], (int) $parts[1]];
+        $seconds = $parts[2] ?? '0';
+        $whole = (int) $seconds;
+        $micro = str_contains($seconds, '.') ? (int) substr(str_pad(explode('.', $seconds)[1], 6, '0'), 0, 6) : 0;
+
+        if ($hour > 23 || $minute > 59 || $whole > 59) {
+            throw new CorruptFile(sprintf('The date cell value "%s" is not a valid time.', $raw));
+        }
+
+        return $date->setTime($hour, $minute, $whole, $micro);
     }
 
     private static function columnIndex(string $letters, string $reference): int
@@ -621,9 +631,11 @@ final class XlsxReader implements Reader
 
                     $state = $xml->attribute('state');
 
+                    $part = $id !== null ? ($targets[$id] ?? null) : null;
+
                     $this->sheets[] = [
                         'name' => (string) $xml->attribute('name'),
-                        'part' => $id !== null ? ($targets[$id] ?? null) : null,
+                        'part' => $part !== null && $zip->has($part) ? $part : null,
                         'visible' => $state !== 'hidden' && $state !== 'veryHidden',
                     ];
                 }

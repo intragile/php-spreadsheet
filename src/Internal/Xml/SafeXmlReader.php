@@ -33,13 +33,21 @@ final class SafeXmlReader
 
     private bool $sawNode = false;
 
+    /** First fatal error collected for this reader by collectErrors(). */
+    private ?string $fatal = null;
+
+    /** Readers currently open; libxml's error mode is process-wide, so it is shared by all of them. */
+    private static int $openReaders = 0;
+
+    /** The error mode in effect before the first open reader switched it on. */
+    private static bool $savedErrorMode = false;
+
     /**
      * @param  Closure(): bool|null  $limitExceeded
      * @param  Closure(): string|null  $prolog
      */
     private function __construct(
         private readonly XMLReader $reader,
-        private readonly bool $previousErrorMode,
         private readonly ?Closure $limitExceeded,
         private readonly ?Closure $prolog,
     ) {
@@ -58,17 +66,16 @@ final class SafeXmlReader
     public static function fromUri(string $uri, ?Closure $limitExceeded = null, ?Closure $prolog = null): self
     {
         self::requireExtension();
-        $previous = libxml_use_internal_errors(true);
-        libxml_clear_errors();
+        self::acquireErrorMode();
         $reader = new XMLReader;
 
         if (@$reader->open($uri, null, self::FLAGS) !== true) {
-            libxml_use_internal_errors($previous);
+            self::releaseErrorMode();
 
             throw new MalformedXml('The XML document cannot be opened.');
         }
 
-        return new self($reader, $previous, $limitExceeded, $prolog);
+        return new self($reader, $limitExceeded, $prolog);
     }
 
     /**
@@ -92,17 +99,16 @@ final class SafeXmlReader
             throw new MalformedXml('The XML document is empty.');
         }
 
-        $previous = libxml_use_internal_errors(true);
-        libxml_clear_errors();
+        self::acquireErrorMode();
         $reader = new XMLReader;
 
         if (@$reader->XML($xml, null, self::FLAGS) !== true) {
-            libxml_use_internal_errors($previous);
+            self::releaseErrorMode();
 
             throw new MalformedXml('The XML document cannot be parsed.');
         }
 
-        return new self($reader, $previous, null, static fn (): string => substr($xml, 0, self::PROLOG_BYTES));
+        return new self($reader, null, static fn (): string => substr($xml, 0, self::PROLOG_BYTES));
     }
 
     /**
@@ -143,11 +149,10 @@ final class SafeXmlReader
      * The wrapped reader, for hot loops that cannot afford a method call per node. Its parser
      * settings stay as configured here. Hand over only once read() has reached the document
      * element, so the DOCTYPE check has run. The caller must not change parser properties, must
-     * check libxml's error list for a fatal error before trusting what it has read (after one,
-     * readString() returns '', next() still succeeds and the reader unwinds with synthetic end
-     * tags), should empty the list from time to time but never drop a fatal error, and must call
-     * read() on this object once it stops on a fatal error or a false return: that call throws
-     * if the document was malformed or the byte budget ran out.
+     * call collectErrors() before trusting what it has read and before handing control elsewhere
+     * (after a fatal error readString() returns '', next() still succeeds and the reader unwinds
+     * with synthetic end tags), and must treat a document that stops early as corrupt; read()
+     * throws the specific cause (malformed XML, exhausted byte budget) when one is known.
      */
     public function raw(): XMLReader
     {
@@ -200,7 +205,20 @@ final class SafeXmlReader
         $this->closed = true;
         @$this->reader->close();
         libxml_clear_errors();
-        libxml_use_internal_errors($this->previousErrorMode);
+        self::releaseErrorMode();
+    }
+
+    /**
+     * Moves the errors libxml recorded since the last check to this reader, emptying the
+     * process-wide list, and reports whether this reader has met a fatal error. Callers of raw()
+     * use it after their own steps, before handing control elsewhere, so an error is always
+     * attributed to the reader that caused it. A collected fatal error is thrown by read().
+     */
+    public function collectErrors(): bool
+    {
+        $this->fatal ??= $this->drainErrors();
+
+        return $this->fatal !== null;
     }
 
     public function __destruct()
@@ -215,7 +233,7 @@ final class SafeXmlReader
 
     private function advance(bool $moved): bool
     {
-        $error = $this->drainErrors();
+        $error = $this->fatal ?? $this->drainErrors();
 
         if ($moved && $error === null) {
             if ($this->reader->nodeType === XMLReader::DOC_TYPE && $this->hasInternalSubset()) {
@@ -291,6 +309,30 @@ final class SafeXmlReader
         }
 
         return str_ends_with($outer, ']>') || $inner !== '';
+    }
+
+    /**
+     * Internal error collection stays on while any reader is open, whatever order readers are
+     * closed in; the mode found before the first one opened is restored when the last one closes.
+     * Errors left over from earlier code are dropped so they are not blamed on this reader.
+     */
+    private static function acquireErrorMode(): void
+    {
+        $previous = libxml_use_internal_errors(true);
+
+        if (self::$openReaders === 0) {
+            self::$savedErrorMode = $previous;
+            libxml_clear_errors();
+        }
+
+        self::$openReaders++;
+    }
+
+    private static function releaseErrorMode(): void
+    {
+        if (self::$openReaders > 0 && --self::$openReaders === 0) {
+            libxml_use_internal_errors(self::$savedErrorMode);
+        }
     }
 
     private static function fileUri(string $path): string

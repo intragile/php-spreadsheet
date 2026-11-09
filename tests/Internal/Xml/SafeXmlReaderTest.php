@@ -259,6 +259,56 @@ final class SafeXmlReaderTest extends TestCase
         self::drainText(SafeXmlReader::fromFile('data://text/plain,<r>injected</r>'));
     }
 
+    public function test_error_mode_survives_readers_closing_out_of_order(): void
+    {
+        $before = libxml_use_internal_errors(false);
+
+        try {
+            $first = SafeXmlReader::fromString('<a><b/></a>');
+            // Long enough that libxml meets the truncation only after the first steps.
+            $second = SafeXmlReader::fromString('<a>'.str_repeat('<b>x</b>', 20_000).'<b>');
+            $first->read();
+            $second->read();
+
+            $first->close();
+            // The second reader still collects errors instead of emitting warnings.
+            $this->assertTrue(libxml_use_internal_errors());
+
+            try {
+                self::drainText($second);
+                $this->fail('A truncated document must throw.');
+            } catch (MalformedXml) {
+                // expected
+            }
+
+            $this->assertFalse(libxml_use_internal_errors());
+        } finally {
+            libxml_use_internal_errors($before);
+        }
+    }
+
+    public function test_collected_fatal_error_belongs_to_its_reader(): void
+    {
+        $good = SafeXmlReader::fromString('<a><b>1</b><b>2</b></a>');
+        $bad = SafeXmlReader::fromString('<a>'.str_repeat('<b>x</b>', 20_000).'<b>');
+        $good->read();
+
+        $raw = $bad->raw();
+        $bad->read();
+
+        while ($raw->read()) {
+            // Walk until the fatal error stops the raw reader.
+        }
+
+        $this->assertTrue($bad->collectErrors());
+        $this->assertFalse($good->collectErrors());
+        $this->assertSame('12', self::drainText($good));
+
+        $this->expectException(MalformedXml::class);
+
+        $bad->read();
+    }
+
     public function test_internal_error_state_is_restored(): void
     {
         $before = libxml_use_internal_errors(false);

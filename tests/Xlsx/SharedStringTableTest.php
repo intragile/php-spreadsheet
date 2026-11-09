@@ -6,6 +6,7 @@ namespace IntrAgile\Spreadsheet\Tests\Xlsx;
 
 use IntrAgile\Spreadsheet\Tests\Support\TestCase;
 use IntrAgile\Spreadsheet\Xlsx\SharedStringTable;
+use LogicException;
 
 final class SharedStringTableTest extends TestCase
 {
@@ -89,6 +90,18 @@ final class SharedStringTableTest extends TestCase
         $this->assertSame('', $table->get(-1));
 
         $table->close();
+    }
+
+    public function test_closed_table_refuses_lookups(): void
+    {
+        $table = new SharedStringTable(1);
+        $table->add('kept');
+        $table->add('spilled');
+        $table->close();
+
+        $this->expectException(LogicException::class);
+
+        $table->get(1);
     }
 
     public function test_close_removes_the_spill_file(): void

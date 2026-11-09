@@ -14,6 +14,7 @@ use IntrAgile\Spreadsheet\Tests\Support\TestCase;
 use IntrAgile\Spreadsheet\Tests\Support\XlsxFixtureBuilder;
 use IntrAgile\Spreadsheet\Xlsx\XlsxReader;
 use InvalidArgumentException;
+use LogicException;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 final class XlsxReaderTest extends TestCase
@@ -330,14 +331,172 @@ final class XlsxReaderTest extends TestCase
             'xl/workbook.xml' => self::workbook(),
             'xl/_rels/workbook.xml.rels' => self::workbookRels(),
             'xl/worksheets/sheet1.xml' => '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
-                .'<row r="1"><c r="A1" t="d"><v>2025-01-31T13:45:00Z</v></c><c r="B1" t="d"><v>2025-01-31</v></c><c r="C1" t="d"><v>nonsense</v></c></row>'
+                .'<row r="1"><c r="A1" t="d"><v>2025-01-31T13:45:00Z</v></c><c r="B1" t="d"><v>2025-01-31</v></c>'
+                .'<c r="C1" t="d"><v>2025-01-31T08:05</v></c><c r="D1" t="d"><v>2025-01-31T23:59:58.25+02:00</v></c></row>'
                 .'</sheetData></worksheet>',
         ], 'xlsx');
         $reader = new XlsxReader($path, new ReadOptions);
         $rows = iterator_to_array($reader->rows());
         $reader->close();
 
-        $this->assertSame([1 => ['date:2025-01-31 13:45:00', 'date:2025-01-31 00:00:00', 'nonsense']], array_map(self::normalize(...), $rows));
+        $this->assertSame(
+            [1 => ['date:2025-01-31 13:45:00', 'date:2025-01-31 00:00:00', 'date:2025-01-31 08:05:00', 'date:2025-01-31 23:59:58']],
+            array_map(self::normalize(...), $rows),
+        );
+        $this->assertInstanceOf(DateTimeImmutable::class, $rows[1][3]);
+        $this->assertSame('250000', $rows[1][3]->format('u'));
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function invalidIsoDates(): iterable
+    {
+        yield 'relative word' => ['now'];
+        yield 'relative day' => ['tomorrow'];
+        yield 'free text' => ['nonsense'];
+        yield 'impossible day' => ['2025-02-30'];
+        yield 'impossible hour' => ['2025-01-31T24:00:00'];
+        yield 'space separator' => ['2025-01-31 13:45:00'];
+    }
+
+    #[DataProvider('invalidIsoDates')]
+    public function test_iso_date_cells_are_parsed_strictly(string $value): void
+    {
+        $path = self::singleSheet('<row r="1"><c r="A1" t="d"><v>'.$value.'</v></c></row>');
+        $reader = new XlsxReader($path, new ReadOptions);
+
+        $this->expectException(CorruptFile::class);
+
+        try {
+            iterator_to_array($reader->rows());
+        } finally {
+            $reader->close();
+        }
+    }
+
+    public function test_sheet_whose_part_is_missing_is_corrupt(): void
+    {
+        $path = Fixtures::zip([
+            '_rels/.rels' => self::packageRels(),
+            'xl/workbook.xml' => self::workbook(),
+            'xl/_rels/workbook.xml.rels' => self::workbookRels(),
+        ], 'xlsx');
+        $reader = new XlsxReader($path, new ReadOptions);
+
+        $this->assertEquals([new SheetInfo('Sheet1', 0)], $reader->sheets());
+
+        try {
+            $reader->rows();
+            $this->fail('A sheet without its part must throw.');
+        } catch (CorruptFile $exception) {
+            $this->assertStringContainsString('Sheet1', $exception->getMessage());
+        } finally {
+            $reader->close();
+        }
+    }
+
+    public function test_resuming_rows_after_close_throws(): void
+    {
+        $reader = new XlsxReader(Fixtures::committed('xlsx/excel-mixed.xlsx'), new ReadOptions(sharedStringsInMemory: 0));
+        $rows = $reader->rows();
+        $this->assertSame('Egész', $rows->current()[0]);
+        $reader->close();
+
+        $this->expectException(LogicException::class);
+
+        $rows->next();
+    }
+
+    public function test_truncated_sheet_fails_when_generators_interleave(): void
+    {
+        $modeBefore = libxml_use_internal_errors();
+        $good = new XlsxReader(Fixtures::committed('xlsx/excel-mixed.xlsx'), new ReadOptions);
+        $bad = new XlsxReader(self::truncatedSheet(2000), new ReadOptions);
+
+        // The good reader opens first and finishes first, while the bad one is suspended.
+        $first = $good->rows();
+        $first->current();
+        $second = $bad->rows();
+        $second->current();
+        $this->assertCount(6, iterator_to_array($first));
+
+        $count = 0;
+
+        try {
+            foreach ($second as $row) {
+                $count++;
+            }
+
+            $this->fail('A truncated sheet must throw.');
+        } catch (CorruptFile) {
+            $this->assertLessThanOrEqual(2000, $count);
+        } finally {
+            $good->close();
+            $bad->close();
+        }
+
+        $this->assertSame($modeBefore, libxml_use_internal_errors());
+    }
+
+    public function test_valid_file_stays_valid_beside_a_corrupt_one(): void
+    {
+        $good = new XlsxReader(Fixtures::committed('xlsx/excel-mixed.xlsx'), new ReadOptions);
+        $bad = new XlsxReader(self::truncatedSheet(2000), new ReadOptions);
+        $expected = array_map(self::normalize(...), $this->read('excel-mixed.xlsx'));
+
+        $first = $good->rows();
+        $collected = [$first->key() => self::normalize($first->current())];
+
+        // The corrupt sheet fails while the good one is suspended mid-sheet.
+        try {
+            iterator_to_array($bad->rows());
+            $this->fail('A truncated sheet must throw.');
+        } catch (CorruptFile) {
+            // expected
+        }
+
+        // And again with the corrupt generator suspended while the good one finishes.
+        $second = $bad->rows();
+        $second->current();
+
+        for ($first->next(); $first->valid(); $first->next()) {
+            $collected[$first->key()] = self::normalize($first->current());
+        }
+
+        $this->assertSame($expected, $collected);
+
+        try {
+            iterator_to_array($second);
+            $this->fail('A truncated sheet must throw.');
+        } catch (CorruptFile) {
+            // expected
+        } finally {
+            $good->close();
+            $bad->close();
+        }
+    }
+
+    private static function truncatedSheet(int $rows): string
+    {
+        $data = '';
+
+        for ($i = 1; $i <= $rows; $i++) {
+            $data .= '<row r="'.$i.'"><c r="A'.$i.'"><v>'.$i.'</v></c></row>';
+        }
+
+        return self::singleSheet($data.'<row r="'.($rows + 1).'"><c r="A'.($rows + 1).'"><v>2', false);
+    }
+
+    private static function singleSheet(string $sheetData, bool $close = true): string
+    {
+        return Fixtures::zip([
+            '_rels/.rels' => self::packageRels(),
+            'xl/workbook.xml' => self::workbook(),
+            'xl/_rels/workbook.xml.rels' => self::workbookRels(),
+            'xl/worksheets/sheet1.xml' => '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                .$sheetData.($close ? '</sheetData></worksheet>' : ''),
+        ], 'xlsx');
     }
 
     public function test_memory_flat(): void
