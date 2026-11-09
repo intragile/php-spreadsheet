@@ -1,0 +1,71 @@
+{
+    "name": "intragile/php-spreadsheet",
+    "description": "Streaming XLSX, ODS and CSV reader and writer for PHP with no Composer dependencies and constant memory per row.",
+    "keywords": [
+        "xlsx",
+        "ods",
+        "csv",
+        "spreadsheet",
+        "excel",
+        "opendocument",
+        "streaming",
+        "reader",
+        "writer",
+        "export",
+        "import"
+    ],
+    "type": "library",
+    "license": "MIT",
+    "homepage": "https://intragile.eu",
+    "support": {
+        "issues": "https://github.com/intragile/php-spreadsheet/issues",
+        "source": "https://github.com/intragile/php-spreadsheet",
+        "security": "https://github.com/intragile/php-spreadsheet/security/policy"
+    },
+    "authors": [
+        {
+            "name": "IntrAgile Kft.",
+            "email": "info@intragile.eu",
+            "homepage": "https://intragile.eu"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "ext-mbstring": "*",
+        "ext-xmlreader": "*",
+        "ext-zip": "*"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.0",
+        "phpstan/phpstan": "^2.0",
+        "phpunit/phpunit": "^11.5|^12.0"
+    },
+    "suggest": {
+        "phpoffice/phpspreadsheet": "Needed for reading legacy XLS files."
+    },
+    "autoload": {
+        "psr-4": {
+            "IntrAgile\\Spreadsheet\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "IntrAgile\\Spreadsheet\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-main": "1.0.x-dev"
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse --memory-limit=1G",
+        "format": "pint"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

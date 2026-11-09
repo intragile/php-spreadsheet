@@ -1,0 +1,213 @@
+<?php
+
+declare(strict_types=1);
+
+namespace IntrAgile\Spreadsheet\Internal\Zip;
+
+use IntrAgile\Spreadsheet\Exception\CorruptFile;
+use IntrAgile\Spreadsheet\Exception\LimitExceeded;
+use IntrAgile\Spreadsheet\Internal\Xml\SafeXmlReader;
+use LogicException;
+use ZipArchive;
+
+/**
+ * Read-only access to a zip container (OOXML, OpenDocument) under safety limits.
+ *
+ * @internal
+ */
+final class SafeZip
+{
+    /** @var array<string, int> entry name => index */
+    private array $entries = [];
+
+    /** @var list<string> */
+    private array $uris = [];
+
+    private ByteBudget $total;
+
+    private function __construct(
+        private readonly ZipArchive $zip,
+        private readonly int $maxUncompressedBytes,
+    ) {
+        $this->total = new ByteBudget($maxUncompressedBytes);
+    }
+
+    /**
+     * @param  int  $maxEntries  Most entries the archive may hold.
+     * @param  int  $maxUncompressedBytes  Limit for a single entry and for all bytes read in total.
+     *
+     * @throws CorruptFile when the file is not a readable zip archive or holds an encrypted entry
+     * @throws LimitExceeded when the archive holds too many entries or an entry declares too many bytes
+     */
+    public static function open(string $path, int $maxEntries, int $maxUncompressedBytes): self
+    {
+        if (! extension_loaded('zip')) {
+            throw new LogicException('ext-zip is required to read zip containers.');
+        }
+
+        $zip = new ZipArchive;
+
+        if ($zip->open($path, ZipArchive::RDONLY) !== true) {
+            throw new CorruptFile('The file is not a readable zip archive.');
+        }
+
+        if ($zip->numFiles > $maxEntries) {
+            $count = $zip->numFiles;
+            $zip->close();
+
+            throw new LimitExceeded(sprintf('The archive holds %d entries; the limit is %d.', $count, $maxEntries));
+        }
+
+        $archive = new self($zip, $maxUncompressedBytes);
+
+        try {
+            for ($index = 0; $index < $zip->numFiles; $index++) {
+                $stat = $zip->statIndex($index);
+
+                if (! is_array($stat)) {
+                    continue;
+                }
+
+                if ($stat['encryption_method'] !== ZipArchive::EM_NONE) {
+                    throw new CorruptFile(sprintf('The archive entry "%s" is encrypted.', $stat['name']));
+                }
+
+                if ($stat['size'] > $maxUncompressedBytes) {
+                    throw new LimitExceeded(sprintf('The archive entry "%s" declares %d bytes; the limit is %d.', $stat['name'], $stat['size'], $maxUncompressedBytes));
+                }
+
+                if (self::isSafeName($stat['name'])) {
+                    $archive->entries[$stat['name']] = $index;
+                }
+            }
+        } catch (CorruptFile|LimitExceeded $exception) {
+            $zip->close();
+
+            throw $exception;
+        }
+
+        return $archive;
+    }
+
+    public function has(string $name): bool
+    {
+        return isset($this->entries[$name]);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function names(): array
+    {
+        return array_keys($this->entries);
+    }
+
+    /**
+     * Reads a small entry completely.
+     *
+     * @throws LimitExceeded when the entry yields more than $maxBytes or a limit is hit
+     * @throws CorruptFile when the entry does not exist or cannot be read
+     */
+    public function read(string $name, int $maxBytes): string
+    {
+        $entry = $this->entryBudget($name, $maxBytes);
+        $stream = $this->zip->getStream($name);
+
+        if (! is_resource($stream)) {
+            throw new CorruptFile(sprintf('The archive entry "%s" cannot be read.', $name));
+        }
+
+        $contents = '';
+
+        try {
+            while (! feof($stream)) {
+                $chunk = fread($stream, 65536);
+
+                if (! is_string($chunk) || $chunk === '') {
+                    break;
+                }
+
+                if (! $entry->consume(strlen($chunk)) || ! $this->total->consume(strlen($chunk))) {
+                    throw new LimitExceeded(sprintf('The archive entry "%s" exceeds the size limit.', $name));
+                }
+
+                $contents .= $chunk;
+            }
+        } finally {
+            fclose($stream);
+        }
+
+        return $contents;
+    }
+
+    /**
+     * Streams an XML entry; the reader throws LimitExceeded once a byte limit is reached.
+     */
+    public function xmlReader(string $name): SafeXmlReader
+    {
+        $entry = $this->entryBudget($name, $this->maxUncompressedBytes);
+        $total = $this->total;
+        $uri = ZipEntryStream::register($this->zip, $name, [$entry, $total]);
+        $this->uris[] = $uri;
+
+        return SafeXmlReader::fromUri(
+            $uri,
+            static fn (): bool => $entry->isExceeded() || $total->isExceeded(),
+            static fn (): string => ZipEntryStream::head($uri),
+        );
+    }
+
+    public function close(): void
+    {
+        foreach ($this->uris as $uri) {
+            ZipEntryStream::release($uri);
+        }
+
+        $this->uris = [];
+        @$this->zip->close();
+    }
+
+    public function __destruct()
+    {
+        foreach ($this->uris as $uri) {
+            ZipEntryStream::release($uri);
+        }
+    }
+
+    private function entryBudget(string $name, int $maxBytes): ByteBudget
+    {
+        if (! self::isSafeName($name)) {
+            throw new LimitExceeded(sprintf('The archive entry name "%s" is not allowed.', $name));
+        }
+
+        $index = $this->entries[$name] ?? null;
+
+        if ($index === null) {
+            throw new CorruptFile(sprintf('The archive entry "%s" does not exist.', $name));
+        }
+
+        $stat = $this->zip->statIndex($index);
+        $limit = min($maxBytes, $this->maxUncompressedBytes);
+
+        if (is_array($stat) && $stat['size'] > $limit) {
+            throw new LimitExceeded(sprintf('The archive entry "%s" declares %d bytes; the limit is %d.', $name, $stat['size'], $limit));
+        }
+
+        return new ByteBudget($limit);
+    }
+
+    private static function isSafeName(string $name): bool
+    {
+        if ($name === '' || str_contains($name, "\0") || $name[0] === '/' || $name[0] === '\\' || preg_match('/^[A-Za-z]:/', $name) === 1) {
+            return false;
+        }
+
+        foreach (preg_split('#[/\\\\]#', $name) ?: [] as $segment) {
+            if ($segment === '..') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}
