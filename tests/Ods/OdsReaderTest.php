@@ -420,12 +420,45 @@ final class OdsReaderTest extends TestCase
         $this->assertSame([1 => [1], 2 => [2]], $rows);
     }
 
+    public function test_non_empty_repeat_beyond_the_row_cap_throws_limit_exceeded(): void
+    {
+        $this->expectException(LimitExceeded::class);
+
+        $this->readXml('<table:table-row table:number-rows-repeated="999999999999"><table:table-cell office:value-type="float" office:value="1"/></table:table-row>');
+    }
+
+    public function test_non_empty_row_past_the_cap_throws_limit_exceeded(): void
+    {
+        $this->expectException(LimitExceeded::class);
+
+        $this->readXml('<table:table-row table:number-rows-repeated="1048576"/><table:table-row><table:table-cell office:value-type="float" office:value="1"/></table:table-row>');
+    }
+
+    public function test_trailing_empty_repeat_beyond_the_cap_is_skipped(): void
+    {
+        $rows = $this->readXml('<table:table-row><table:table-cell office:value-type="float" office:value="1"/></table:table-row>'
+            .'<table:table-row table:number-rows-repeated="1048575"><table:table-cell/></table:table-row>'
+            .'<table:table-row table:number-rows-repeated="999999999999"/>');
+
+        $this->assertSame([1 => [1]], $rows);
+    }
+
+    public function test_repeat_ending_exactly_on_the_cap_is_allowed(): void
+    {
+        $reader = new OdsReader(self::singleTable('<table:table-row table:number-rows-repeated="1048575"/><table:table-row><table:table-cell office:value-type="float" office:value="7"/></table:table-row>'), new ReadOptions);
+
+        try {
+            $this->assertSame([1_048_576 => [7]], iterator_to_array($reader->rows()));
+        } finally {
+            $reader->close();
+        }
+    }
+
     public function test_memory_flat(): void
     {
         $small = $this->buildLarge(30_000);
         $large = $this->buildLarge(300_000);
-        // ODS markup is verbose: 300k rows of 10 cells inflate past the default 256 MB budget.
-        $options = new ReadOptions(maxUncompressedBytes: 1_073_741_824);
+        $options = new ReadOptions;
 
         $smallGrowth = self::peakGrowth(fn () => $this->consume($small, $options, 30_000));
         $largeGrowth = self::peakGrowth(fn () => $this->consume($large, $options, 300_000));

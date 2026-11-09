@@ -15,6 +15,7 @@ final class ReadOptions
         public string $csvEnclosure = '"',
         public int $sharedStringsInMemory = 100_000,
         public int $maxZipEntries = 5_000,
-        public int $maxUncompressedBytes = 268_435_456,
+        public int $maxUncompressedBytes = 4_294_967_296,
+        public int $maxCompressionRatio = 200,
     ) {}
 }

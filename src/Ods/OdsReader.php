@@ -57,6 +57,9 @@ final class OdsReader implements Reader
     /** Most cells one row may hold; LibreOffice itself stops at 16384, so this is generous. */
     private const MAX_COLUMNS = 65_536;
 
+    /** Last row of Excel and LibreOffice; a non-empty row beyond it is rejected. */
+    private const MAX_ROWS = 1_048_576;
+
     /** Longest run of spaces a single text:s may expand to. */
     private const MAX_SPACES = 1_048_576;
 
@@ -361,6 +364,10 @@ final class OdsReader implements Reader
                         }
 
                         if ($count > 0) {
+                            if ($firstRow + $rowRepeat - 1 > self::MAX_ROWS) {
+                                throw new LimitExceeded(sprintf('A non-empty row lies beyond row %d.', self::MAX_ROWS));
+                            }
+
                             /** @var list<int|float|string|bool|DateTimeImmutable|null> $row */
                             for ($i = 0; $i < $rowRepeat; $i++) {
                                 yield $firstRow + $i => $row;
@@ -572,6 +579,6 @@ final class OdsReader implements Reader
 
     private function open(): SafeZip
     {
-        return SafeZip::open($this->path, $this->options->maxZipEntries, $this->options->maxUncompressedBytes);
+        return SafeZip::open($this->path, $this->options->maxZipEntries, $this->options->maxUncompressedBytes, $this->options->maxCompressionRatio);
     }
 }

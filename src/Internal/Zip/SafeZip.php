@@ -17,6 +17,9 @@ use ZipArchive;
  */
 final class SafeZip
 {
+    /** Entries up to this size skip the ratio check: tiny, highly repetitive parts are harmless and compress extremely well. */
+    private const RATIO_FLOOR_BYTES = 1_048_576;
+
     /** @var array<string, int> entry name => index */
     private array $entries = [];
 
@@ -35,11 +38,12 @@ final class SafeZip
     /**
      * @param  int  $maxEntries  Most entries the archive may hold.
      * @param  int  $maxUncompressedBytes  Limit for a single entry and for all bytes read in total.
+     * @param  int  $maxCompressionRatio  Largest allowed declared-uncompressed to compressed size ratio of one entry larger than 1 MiB.
      *
      * @throws CorruptFile when the file is not a readable zip archive or holds an encrypted entry
      * @throws LimitExceeded when the archive holds too many entries or an entry declares too many bytes
      */
-    public static function open(string $path, int $maxEntries, int $maxUncompressedBytes): self
+    public static function open(string $path, int $maxEntries, int $maxUncompressedBytes, int $maxCompressionRatio = 200): self
     {
         if (! extension_loaded('zip')) {
             throw new LogicException('ext-zip is required to read zip containers.');
@@ -74,6 +78,10 @@ final class SafeZip
 
                 if ($stat['size'] > $maxUncompressedBytes) {
                     throw new LimitExceeded(sprintf('The archive entry "%s" declares %d bytes; the limit is %d.', $stat['name'], $stat['size'], $maxUncompressedBytes));
+                }
+
+                if ($stat['size'] > self::RATIO_FLOOR_BYTES && $stat['comp_size'] > 0 && $maxCompressionRatio < $stat['size'] / $stat['comp_size']) {
+                    throw new LimitExceeded(sprintf('The archive entry "%s" has a compression ratio above %d:1.', $stat['name'], $maxCompressionRatio));
                 }
 
                 if (self::isSafeName($stat['name'])) {

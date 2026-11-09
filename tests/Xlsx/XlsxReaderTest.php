@@ -220,6 +220,25 @@ final class XlsxReaderTest extends TestCase
         new XlsxReader(Fixtures::committed('xlsx/excel-mixed.xlsx'), new ReadOptions(maxZipEntries: 3));
     }
 
+    public function test_row_number_above_the_spreadsheet_maximum_throws_limit_exceeded(): void
+    {
+        $path = Fixtures::zip([
+            '_rels/.rels' => self::packageRels(),
+            'xl/workbook.xml' => self::workbook(),
+            'xl/_rels/workbook.xml.rels' => self::workbookRels(),
+            'xl/worksheets/sheet1.xml' => '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1"><v>1</v></c></row><row r="1048577"><c r="A1048577"><v>2</v></c></row></sheetData></worksheet>',
+        ], 'xlsx');
+        $reader = new XlsxReader($path, new ReadOptions);
+
+        $this->expectException(LimitExceeded::class);
+
+        try {
+            iterator_to_array($reader->rows());
+        } finally {
+            $reader->close();
+        }
+    }
+
     public function test_malformed_sheet_is_corrupt(): void
     {
         $path = Fixtures::zip([

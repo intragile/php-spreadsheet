@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use Generator;
 use IntrAgile\Spreadsheet\Contracts\Reader;
 use IntrAgile\Spreadsheet\Exception\CorruptFile;
+use IntrAgile\Spreadsheet\Exception\LimitExceeded;
 use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
 use IntrAgile\Spreadsheet\Internal\Date\IsoDate;
 use IntrAgile\Spreadsheet\Internal\Date\SerialDate;
@@ -42,6 +43,9 @@ final class XlsxReader implements Reader
 
     /** Integers beyond ±2^53 lose precision as float, so they stay float to say so. */
     private const MAX_EXACT_INT = 9007199254740992;
+
+    /** Last row of Excel and LibreOffice; a row number beyond it is rejected. */
+    private const MAX_ROWS = 1_048_576;
 
     /** Distinct date serials remembered per pass; real sheets repeat a limited set of days. */
     private const DATE_CACHE_SIZE = 4096;
@@ -316,6 +320,11 @@ final class XlsxReader implements Reader
                     } elseif ($name === 'row') {
                         $number = (int) $x->getAttribute('r');
                         $rowNumber = $number > 0 ? $number : $rowNumber + 1;
+
+                        if ($rowNumber > self::MAX_ROWS) {
+                            throw new LimitExceeded(sprintf('The sheet has a row beyond row %d.', self::MAX_ROWS));
+                        }
+
                         $row = [];
                         $count = 0;
                         $position = 0;
@@ -677,7 +686,7 @@ final class XlsxReader implements Reader
 
     private function open(): SafeZip
     {
-        return SafeZip::open($this->path, $this->options->maxZipEntries, $this->options->maxUncompressedBytes);
+        return SafeZip::open($this->path, $this->options->maxZipEntries, $this->options->maxUncompressedBytes, $this->options->maxCompressionRatio);
     }
 
     /**

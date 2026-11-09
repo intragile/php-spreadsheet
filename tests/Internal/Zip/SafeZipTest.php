@@ -47,6 +47,24 @@ final class SafeZipTest extends TestCase
         SafeZip::open(Fixtures::zip(['a.txt' => str_repeat('x', 5000)]), self::ENTRIES, 1000);
     }
 
+    public function test_a_high_compression_ratio_entry_throws_limit_exceeded(): void
+    {
+        $path = Fixtures::zip(['bomb.xml' => str_repeat("\0", 50_000_000)]);
+
+        $this->expectException(LimitExceeded::class);
+        $this->expectExceptionMessage('bomb.xml');
+
+        SafeZip::open($path, self::ENTRIES, self::BYTES, 200);
+    }
+
+    public function test_a_ratio_within_the_limit_passes(): void
+    {
+        $zip = SafeZip::open(Fixtures::zip(['a.txt' => str_repeat('hello world ', 2000)]), self::ENTRIES, self::BYTES, 200);
+
+        $this->assertTrue($zip->has('a.txt'));
+        $zip->close();
+    }
+
     public function test_an_entry_hiding_its_real_size_is_stopped_while_reading(): void
     {
         $path = Fixtures::zipWithFalseSize('big.txt', str_repeat('A', 5_000_000), 1000);
