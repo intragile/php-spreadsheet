@@ -589,6 +589,147 @@ function build_xlsx_google_sheets(): void
     ]);
 }
 
+const ODS_MIME = 'application/vnd.oasis.opendocument.spreadsheet';
+
+/**
+ * LibreOffice's content.xml envelope: the namespaces it declares, plus the automatic styles
+ * (column widths, cell formats and, for hidden sheets, a table style with table:display="false").
+ */
+function ods_content(string $automaticStyles, string $tables): string
+{
+    return '<?xml version="1.0" encoding="UTF-8"?>'."\n"
+        .'<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        .'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+        .'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+        .'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
+        .'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" '
+        .'xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" '
+        .'xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" office:version="1.3">'
+        .'<office:scripts/><office:font-face-decls/>'
+        .'<office:automatic-styles>'.$automaticStyles.'</office:automatic-styles>'
+        .'<office:body><office:spreadsheet>'
+        .'<table:calculation-settings table:automatic-find-labels="false"/>'
+        .$tables
+        .'<table:named-expressions/>'
+        .'</office:spreadsheet></office:body></office:document-content>';
+}
+
+function write_ods(string $path, string $content): void
+{
+    $manifest = '<?xml version="1.0" encoding="UTF-8"?>'."\n"
+        .'<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.3">'
+        .'<manifest:file-entry manifest:full-path="/" manifest:version="1.3" manifest:media-type="'.ODS_MIME.'"/>'
+        .'<manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>'
+        .'</manifest:manifest>';
+
+    // The mimetype entry comes first and stays uncompressed so the file can be sniffed by magic bytes.
+    write_zip($path, [
+        ['mimetype', ODS_MIME, true],
+        ['content.xml', $content, false],
+        ['META-INF/manifest.xml', $manifest, false],
+    ]);
+}
+
+/**
+ * A table with the column declaration LibreOffice writes ahead of the rows.
+ */
+function ods_table(string $name, string $rows, string $style = 'ta1', int $columns = 1): string
+{
+    return '<table:table table:name="'.$name.'" table:style-name="'.$style.'">'
+        .'<table:table-column table:style-name="co1" table:number-columns-repeated="'.$columns.'" table:default-cell-style-name="Default"/>'
+        .$rows.'</table:table>';
+}
+
+function ods_text(string $value): string
+{
+    return '<table:table-cell office:value-type="string" calcext:value-type="string"><text:p>'.$value.'</text:p></table:table-cell>';
+}
+
+function ods_float(string $value): string
+{
+    return '<table:table-cell office:value-type="float" office:value="'.$value.'" calcext:value-type="float"><text:p>'.$value.'</text:p></table:table-cell>';
+}
+
+function build_ods_libreoffice_mixed(): void
+{
+    $styles = '<style:style style:name="co1" style:family="table-column"><style:table-column-properties fo:break-before="auto" style:column-width="2.258cm"/></style:style>'
+        .'<style:style style:name="ta1" style:family="table" style:master-page-name="Default"><style:table-properties table:display="true" style:writing-mode="lr-tb"/></style:style>'
+        .'<number:date-style style:name="N37"><number:year number:style="long"/><number:text>-</number:text><number:month number:style="long"/><number:text>-</number:text><number:day number:style="long"/></number:date-style>'
+        .'<style:style style:name="ce1" style:family="table-cell" style:parent-style-name="Default" style:data-style-name="N37"/>';
+
+    // The two trailing repeats are exactly what LibreOffice appends to every row and to the sheet.
+    $trailingCells = '<table:table-cell table:number-columns-repeated="16377"/>';
+    $trailingRows = '<table:table-row table:style-name="ro1" table:number-rows-repeated="1048559"><table:table-cell table:number-columns-repeated="16384"/></table:table-row>';
+    $datum = '<table:table-cell table:style-name="ce1" office:value-type="date" office:date-value="2025-01-31" calcext:value-type="date"><text:p>2025-01-31</text:p></table:table-cell>';
+
+    $rows = '<table:table-header-rows><table:table-row table:style-name="ro1">'
+        .ods_text('Egész').ods_text('Tört').ods_text('Szöveg').ods_text('Logikai').ods_text('Dátum').ods_text('Üres').ods_text('Utolsó')
+        .$trailingCells.'</table:table-row></table:table-header-rows>'
+        .'<table:table-row table:style-name="ro1">'
+        .ods_float('42').ods_float('3.14').ods_text('szöveg')
+        .'<table:table-cell office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean"><text:p>TRUE</text:p></table:table-cell>'
+        .$datum
+        .'<table:table-cell/>'
+        .ods_text('utolsó')
+        .$trailingCells.'</table:table-row>'
+        .'<table:table-row table:style-name="ro1">'
+        .'<table:table-cell office:value-type="percentage" office:value="0.125" calcext:value-type="percentage"><text:p>12.5%</text:p></table:table-cell>'
+        .'<table:table-cell office:value-type="currency" office:currency="HUF" office:value="1500" calcext:value-type="currency"><text:p>1 500 Ft</text:p></table:table-cell>'
+        .'<table:table-cell office:value-type="time" office:time-value="PT13H45M00S" calcext:value-type="time"><text:p>13:45:00</text:p></table:table-cell>'
+        .'<table:table-cell office:value-type="date" office:date-value="2025-01-31T13:45:00" calcext:value-type="date"><text:p>2025-01-31 13:45:00</text:p></table:table-cell>'
+        .$trailingCells.'</table:table-row>'
+        .'<table:table-row table:style-name="ro1">'
+        .'<table:table-cell office:value-type="string" calcext:value-type="string"><text:p>sor1</text:p><text:p>sor2</text:p><text:p/><text:p>sor4</text:p></table:table-cell>'
+        .'<table:table-cell office:value-type="string" calcext:value-type="string"><text:p>a<text:s text:c="3"/>b<text:tab/>c<text:s/>d<text:line-break/>e</text:p></table:table-cell>'
+        .'<table:table-cell office:value-type="string" calcext:value-type="string"><text:p>Félkövér <text:span text:style-name="T1">és</text:span> dőlt &lt;&amp;&gt;</text:p></table:table-cell>'
+        .'<table:table-cell office:value-type="string" calcext:value-type="string"><office:annotation draw:style-name="gr1" svg:width="3cm" svg:height="1cm" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0">'
+        .'<dc:creator xmlns:dc="http://purl.org/dc/elements/1.1/">Szerző</dc:creator><text:p>megjegyzés</text:p></office:annotation><text:p>cella szöveg</text:p></table:table-cell>'
+        .'<table:table-cell office:value-type="float" office:value="7"><office:annotation xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"><text:p>szám megjegyzés</text:p></office:annotation><text:p>7</text:p></table:table-cell>'
+        .$trailingCells.'</table:table-row>'
+        .'<table:table-row table:style-name="ro1">'
+        .'<table:table-cell table:number-columns-spanned="2" table:number-rows-spanned="1" office:value-type="string" calcext:value-type="string"><text:p>összevont</text:p></table:table-cell>'
+        .'<table:covered-table-cell/>'
+        .ods_text('x')
+        .'<table:table-cell office:value-type="float" office:value="1E+20" calcext:value-type="float"><text:p>1E+20</text:p></table:table-cell>'
+        .'<table:table-cell office:value-type="string" office:string-value="képlet" calcext:value-type="string"><text:p>képlet</text:p></table:table-cell>'
+        .$trailingCells.'</table:table-row>'
+        .'<table:table-row table:style-name="ro1" table:number-rows-repeated="2"><table:table-cell table:number-columns-repeated="16384"/></table:table-row>'
+        .'<table:table-row table:style-name="ro1"><table:table-cell table:number-columns-repeated="2"/>'.ods_text('lent').'<table:table-cell table:number-columns-repeated="16381"/></table:table-row>'
+        .$trailingRows;
+
+    $content = ods_content($styles, ods_table('Munka1', $rows, 'ta1', 16384));
+    $content = str_replace('xmlns:of=', 'xmlns:calcext="urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0" xmlns:of=', $content);
+
+    write_ods(FIXTURES.'/ods/libreoffice-mixed.ods', $content);
+}
+
+function build_ods_repeated(): void
+{
+    $rows = '<table:table-row>'
+        .'<table:table-cell office:value-type="float" office:value="1" table:number-columns-repeated="3"><text:p>1</text:p></table:table-cell>'
+        .'<table:table-cell table:number-columns-repeated="2"/>'
+        .ods_text('x')
+        .'<table:table-cell table:number-columns-repeated="16378"/></table:table-row>'
+        .'<table:table-row table:number-rows-repeated="3">'.ods_text('r').ods_float('2').'</table:table-row>'
+        .'<table:table-row table:number-rows-repeated="5"><table:table-cell table:number-columns-repeated="16384"/></table:table-row>'
+        .'<table:table-row><table:table-cell table:number-columns-repeated="3"/>'.ods_text('end').'</table:table-row>'
+        .'<table:table-row table:number-rows-repeated="1048567"><table:table-cell table:number-columns-repeated="16384"/></table:table-row>';
+
+    write_ods(FIXTURES.'/ods/repeated.ods', ods_content('', ods_table('Munka1', $rows)));
+}
+
+function build_ods_multi_sheet(): void
+{
+    $styles = '<style:style style:name="ta1" style:family="table"><style:table-properties table:display="true"/></style:style>'
+        .'<style:style style:name="ta2" style:family="table"><style:table-properties table:display="false"/></style:style>';
+    $row = static fn (string $text): string => '<table:table-row>'.ods_text($text).'</table:table-row>';
+
+    write_ods(FIXTURES.'/ods/multi-sheet.ods', ods_content($styles,
+        ods_table('Első', $row('első'))
+        .ods_table('Rejtett', $row('rejtett'), 'ta2')
+        .ods_table('Utolsó', $row('utolsó'))));
+}
+
 if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     if (! is_dir(FIXTURES.'/detect')) {
         mkdir(FIXTURES.'/detect', 0777, true);
@@ -620,6 +761,14 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     build_xlsx_no_r_attributes();
     build_xlsx_libreoffice();
     build_xlsx_google_sheets();
+
+    if (! is_dir(FIXTURES.'/ods')) {
+        mkdir(FIXTURES.'/ods', 0777, true);
+    }
+
+    build_ods_libreoffice_mixed();
+    build_ods_repeated();
+    build_ods_multi_sheet();
 
     echo 'Fixtures written to '.FIXTURES."\n";
 }
