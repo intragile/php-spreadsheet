@@ -139,6 +139,21 @@ final class SafeXmlReader
         return false;
     }
 
+    /**
+     * The wrapped reader, for hot loops that cannot afford a method call per node. Its parser
+     * settings stay as configured here. Hand over only once read() has reached the document
+     * element, so the DOCTYPE check has run. The caller must not change parser properties, must
+     * check libxml's error list for a fatal error before trusting what it has read (after one,
+     * readString() returns '', next() still succeeds and the reader unwinds with synthetic end
+     * tags), should empty the list from time to time but never drop a fatal error, and must call
+     * read() on this object once it stops on a fatal error or a false return: that call throws
+     * if the document was malformed or the byte budget ran out.
+     */
+    public function raw(): XMLReader
+    {
+        return $this->reader;
+    }
+
     public function nodeType(): int
     {
         return $this->reader->nodeType;
