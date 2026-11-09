@@ -9,6 +9,7 @@ use IntrAgile\Spreadsheet\Cell;
 use IntrAgile\Spreadsheet\Contracts\Writer;
 use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
 use IntrAgile\Spreadsheet\Internal\Date\SerialDate;
+use IntrAgile\Spreadsheet\Internal\SheetName;
 use IntrAgile\Spreadsheet\Internal\TempFile;
 use IntrAgile\Spreadsheet\Internal\Xml\XmlEscaper;
 use IntrAgile\Spreadsheet\SheetOptions;
@@ -33,8 +34,6 @@ use ZipArchive;
 final class XlsxWriter implements Writer
 {
     public const MAX_ROWS = 1_048_576;
-
-    private const MAX_SHEET_NAME_LENGTH = 31;
 
     private const BUFFER_BYTES = 65_536;
 
@@ -106,7 +105,7 @@ final class XlsxWriter implements Writer
         $this->assertOpen();
 
         // Validation leaves the writer untouched, so a rejected sheet can be retried.
-        $this->validateSheetName($name);
+        SheetName::validate($name, $this->sheetNames);
         self::validateOptions($options);
 
         try {
@@ -465,24 +464,6 @@ final class XlsxWriter implements Writer
         $text = var_export($value, true);
 
         return str_ends_with($text, '.0') ? substr($text, 0, -2) : $text;
-    }
-
-    private function validateSheetName(string $name): void
-    {
-        $reason = match (true) {
-            $name === '' => 'it is empty',
-            ! mb_check_encoding($name, 'UTF-8') => 'it is not valid UTF-8',
-            mb_strlen($name, 'UTF-8') > self::MAX_SHEET_NAME_LENGTH => 'it is longer than '.self::MAX_SHEET_NAME_LENGTH.' characters',
-            strpbrk($name, '[]:*?/\\') !== false => 'it contains one of [ ] : * ? / \\',
-            preg_match('/[\x00-\x1F]/', $name) === 1 => 'it contains a control character',
-            $name[0] === "'" || $name[-1] === "'" => 'it starts or ends with an apostrophe',
-            isset($this->sheetNames[mb_strtolower($name, 'UTF-8')]) => 'a sheet with this name already exists (names ignore case)',
-            default => null,
-        };
-
-        if ($reason !== null) {
-            throw new InvalidArgumentException(sprintf('Invalid sheet name "%s": %s.', $name, $reason));
-        }
     }
 
     private static function validateOptions(?SheetOptions $options): void
