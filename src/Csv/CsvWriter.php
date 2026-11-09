@@ -117,9 +117,7 @@ final class CsvWriter implements Writer
 
             $this->handle = null;
 
-            if (! @rename((string) $this->tempPath, $this->path)) {
-                throw new RuntimeException('Cannot move the finished file to '.$this->path.'.');
-            }
+            TempFile::publish((string) $this->tempPath, $this->path);
 
             $this->tempPath = null;
             $this->closed = true;

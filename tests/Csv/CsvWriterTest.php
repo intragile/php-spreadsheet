@@ -9,6 +9,7 @@ use Generator;
 use IntrAgile\Spreadsheet\Cell;
 use IntrAgile\Spreadsheet\Csv\CsvReader;
 use IntrAgile\Spreadsheet\Csv\CsvWriter;
+use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
 use IntrAgile\Spreadsheet\ReadOptions;
 use IntrAgile\Spreadsheet\SheetOptions;
 use IntrAgile\Spreadsheet\Style;
@@ -195,6 +196,25 @@ final class CsvWriterTest extends TestCase
             array_map('unlink', glob($dir.'/*') ?: []);
             rmdir($dir);
         }
+    }
+
+    public function test_final_file_has_umask_permissions(): void
+    {
+        $path = Fixtures::path('csv');
+        (new CsvWriter($path))->addRow(['a'])->close();
+
+        clearstatcache();
+        $this->assertSame(0666 & ~umask(), fileperms($path) & 0777);
+    }
+
+    public function test_missing_target_directory_throws_naming_it(): void
+    {
+        $writer = new CsvWriter('/nonexistent-sps-dir/out.csv');
+
+        $this->expectException(SpreadsheetException::class);
+        $this->expectExceptionMessage('/nonexistent-sps-dir');
+
+        $writer->addRow(['a']);
     }
 
     public function test_memory_flat(): void
