@@ -1,0 +1,50 @@
+<?php
+
+declare(strict_types=1);
+
+namespace IntrAgile\Spreadsheet\Tests\Internal\Date;
+
+use DateTimeImmutable;
+use DateTimeZone;
+use IntrAgile\Spreadsheet\Internal\Date\SerialDate;
+use IntrAgile\Spreadsheet\Tests\Support\TestCase;
+
+final class SerialDateTest extends TestCase
+{
+    public function test_serial_roundtrip(): void
+    {
+        $date = SerialDate::toDateTime(45658.5);
+
+        $this->assertSame('2025-01-01 12:00:00', $date->format('Y-m-d H:i:s'));
+        $this->assertSame(45658.5, SerialDate::fromDateTime($date));
+    }
+
+    public function test_1904_system(): void
+    {
+        $this->assertSame('1904-01-01', SerialDate::toDateTime(0, true)->format('Y-m-d'));
+        $this->assertSame(1.0, SerialDate::fromDateTime(new DateTimeImmutable('1904-01-02'), true));
+    }
+
+    public function test_serial_60_is_1900_02_28_or_29_per_excel(): void
+    {
+        $this->assertSame('1900-03-01', SerialDate::toDateTime(61)->format('Y-m-d'));
+        $this->assertSame('1900-02-28', SerialDate::toDateTime(59)->format('Y-m-d'));
+        $this->assertSame('1900-01-01', SerialDate::toDateTime(1)->format('Y-m-d'));
+        $this->assertSame(59.0, SerialDate::fromDateTime(new DateTimeImmutable('1900-02-28')));
+        $this->assertSame(61.0, SerialDate::fromDateTime(new DateTimeImmutable('1900-03-01')));
+        $this->assertSame(1.0, SerialDate::fromDateTime(new DateTimeImmutable('1900-01-01')));
+    }
+
+    public function test_rounds_to_whole_seconds(): void
+    {
+        $this->assertSame('2025-01-02 00:00:00', SerialDate::toDateTime(45658.999999999)->format('Y-m-d H:i:s'));
+    }
+
+    public function test_result_is_utc_and_wall_clock_is_preserved_from_other_zones(): void
+    {
+        $this->assertSame('UTC', SerialDate::toDateTime(45658)->getTimezone()->getName());
+
+        $local = new DateTimeImmutable('2025-01-01 12:00:00', new DateTimeZone('Europe/Budapest'));
+        $this->assertSame(45658.5, SerialDate::fromDateTime($local));
+    }
+}
