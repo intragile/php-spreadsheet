@@ -138,10 +138,13 @@ $writer->close();                                   // the file appears atomical
   `-0.0` is written as `0`. Integers are written exactly, but Excel and LibreOffice store numbers as
   doubles: integers beyond 2^53 (9,007,199,254,740,992) lose precision and Excel shows 15 significant
   digits, so write IDs and account numbers as strings.
-- Column widths are in Excel's width unit (characters of the default font including cell padding):
-  Excel's column-width dialog shows 0.83 less (12 shows as 11.17, checked with Excel for Mac 16).
-  Columns are not sized to their content, so Excel shows `#####` for a date that does not fit the
-  default width: give date columns a width of at least 11, and date-time columns 19.
+- Column widths are in characters of the default font (11 pt Calibri). The cell padding is added
+  as the OOXML specification prescribes, so Excel for Windows shows the width you set; Excel for Mac
+  renders 0.17 narrower (32 shows as 31.83, checked with Excel for Mac 16).
+- A column holding dates gets a width that fits its longest date, unless you set one: 11 for
+  `yyyy-mm-dd`, 20 for `yyyy-mm-dd hh:mm:ss`, and long month or weekday names counted as 10
+  characters. Without it Excel shows `#####` for a date wider than the default column. Other
+  columns are not sized to their content.
 - `close()` renames the finished file onto the target path, replacing an existing file without
   warning. If an earlier error aborted the write, `close()` throws `LogicException` and no file is
   written.
@@ -180,21 +183,34 @@ survive.
 
 ## Office application compatibility
 
-Checked with Microsoft Excel for Mac 16.114 on macOS 15.7 (Hungarian locale), using the sample set
-from `tests/office/build-samples.php` and the AppleScript inspectors next to it:
+Checked on macOS 15.7 (Hungarian locale) with Microsoft Excel for Mac 16.114, Apple Numbers and
+LibreOffice 26.8, using the sample set from `tests/office/build-samples.php` and the inspectors next
+to it (AppleScript for Excel and Numbers, `libreoffice-inspect.sh` for LibreOffice).
+
+Excel:
 
 - XLSX and ODS (plain and styled) open without a repair prompt. Cell positions and types are right,
   including null gaps, dates, booleans, multi-line text and text that looks like a number or formula
   (`00123`, `1e5`, `=1+1`). Number and date formats, column widths, the frozen header row and the
   autofilter show in XLSX; formulas are calculated on open in both formats.
 - ODS in Excel: the autofilter shows, the frozen row does not, because Excel's ODS support has no
-  frozen panes (Excel does not write them in its own ODS files either).
+  frozen panes: it ignores them in an ODS file saved by LibreOffice too.
+- Date columns are at least as wide as Excel's AutoFit makes them, so no date shows as `#####`.
 - CSV with `delimiter: ';', bom: true` opens split into columns with correct accents; with `,` it
   does not split on a Hungarian system.
 - Files saved by Excel (XLSX, and CSV in the Mac code page with CRLF or CR line endings) read back
   with the right values and types.
 
-Apple Numbers and LibreOffice have not been checked yet.
+LibreOffice:
+
+- XLSX and ODS open with the right values, types and formats; the frozen header row and the
+  autofilter show in both formats, and date columns are at least as wide as Calc's optimal width.
+
+Apple Numbers:
+
+- XLSX and CSV open with the right values, types, number and date formats, and calculated formulas.
+- Numbers cannot open ODS files at all, and it shows no frozen rows from XLSX, Excel's own files
+  included.
 
 ## Memory
 

@@ -26,6 +26,8 @@ First stable release: streaming XLSX, ODS and CSV reading and writing with bound
 - Benchmark scenario R1S: reading an XLSX file with shared strings built by a neutral generator.
 - CSV: UTF-16 and UTF-32 are detected without a byte-order mark, UTF-32 marks are recognised, and
   Excel for Mac exports are read (Mac Central European code page, bare carriage-return line endings).
+- XLSX and ODS writers give a column holding dates a width that fits its longest date, unless the
+  column has a width of its own, so Excel and LibreOffice no longer show `#####`.
 
 ### Changed
 
@@ -39,6 +41,8 @@ First stable release: streaming XLSX, ODS and CSV reading and writing with bound
   boolean cells carry a `text:p` display copy.
 - Resuming a CSV row generator after `close()` throws `LogicException`, as for XLSX and ODS.
 - `ReadOptions` is a readonly class: limits cannot be changed after validation.
+- XLSX column widths include the cell padding the OOXML specification prescribes (a width of 12 is
+  written as `12.7109375`), so Excel shows the width that was set, as LibreOffice already did for ODS.
 - A missing or unreadable path throws `SpreadsheetException` from every reader (the zip readers
   used to say `CorruptFile`); a 0-byte file throws `UnsupportedFormat`; a truncated zip throws
   `CorruptFile`; `.xlsb` and password-protected Office files are named in the `UnsupportedFormat`
@@ -65,6 +69,8 @@ First stable release: streaming XLSX, ODS and CSV reading and writing with bound
   a mark, the byte order detected from the content is used.
 - ODS: Excel ignored the autofilter of written files; the database range is now unnamed and the
   `of` formula namespace is declared.
+- ODS: LibreOffice ignored the frozen rows of written files because the `ooo` namespace of the view
+  settings was undeclared.
 - XLSX formula string results (`t="str"`) decode `_xHHHH_` escapes like other strings.
 - Closing one XML reader no longer discards libxml errors still owed to another open reader, and a
   reader left in the middle of a step no longer leaves its errors behind for the next one.

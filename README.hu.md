@@ -144,12 +144,14 @@ $writer->close();                                   // a fájl záráskor, atomi
   LibreOffice dupla pontosságú lebegőpontos számként tárolja őket: a 2^53 (9 007 199 254 740 992)
   fölötti egészek pontatlanná válnak, és az Excel 15 értékes jegyet mutat, ezért az azonosítókat és
   számlaszámokat szövegként írjuk.
-- Az oszlopszélesség az Excel szélességegységében értendő (az alapbetűtípus karakterei a cella
-  belső margójával együtt): az Excel oszlopszélesség-ablaka 0,83-dal kevesebbet mutat (a 12-ből
-  11,17 lesz, Excel for Mac 16-tal ellenőrizve).
-  Az oszlopok szélessége nem igazodik a tartalomhoz, ezért az Excel `#####`-t mutat, ha a dátum nem
-  fér el az alapértelmezett szélességben: a dátumoszlopnak legalább 11, a dátum-idő oszlopnak 19
-  szélességet adjunk.
+- Az oszlopszélesség az alapbetűtípus (11 pontos Calibri) karaktereiben értendő. A cella belső
+  margóját az OOXML-szabvány szerint hozzáadjuk, így a Windowsos Excel pontosan a megadott
+  szélességet mutatja; az Excel for Mac 0,17-dal keskenyebbet (a 32-ből 31,83 lesz, Excel for Mac
+  16-tal ellenőrizve).
+- A dátumot tartalmazó oszlop a leghosszabb dátumához illő szélességet kap, ha nem adunk meg
+  sajátot: `yyyy-mm-dd` esetén 11-et, `yyyy-mm-dd hh:mm:ss` esetén 20-at, a hosszú hónap- és
+  napnevet 10 karakternek számolva. Enélkül az Excel `#####`-t mutatna az alapértelmezett oszlopnál
+  szélesebb dátum helyén. A többi oszlop szélessége nem igazodik a tartalomhoz.
 - A `close()` a kész fájlt a célútvonalra nevezi át, a meglévő fájlt figyelmeztetés nélkül
   felülírva. Ha egy korábbi hiba megszakította az írást, a `close()` `LogicException` kivételt ad, és
   nem keletkezik fájl.
@@ -188,8 +190,12 @@ ilyen szövegnek meg kell maradnia, XLSX-et írjunk.
 
 ## Kompatibilitás irodai alkalmazásokkal
 
-Microsoft Excel for Mac 16.114-gyel ellenőrizve, macOS 15.7-en (magyar területi beállítással), a
-`tests/office/build-samples.php` mintakészletével és a mellette lévő AppleScript-ellenőrzőkkel:
+macOS 15.7-en (magyar területi beállítással) ellenőrizve Microsoft Excel for Mac 16.114-gyel, Apple
+Numbersszel és LibreOffice 26.8-cal, a `tests/office/build-samples.php` mintakészletével és a
+mellette lévő ellenőrzőkkel (Excelhez és Numbershöz AppleScript, LibreOffice-hoz
+`libreoffice-inspect.sh`).
+
+Excel:
 
 - Az XLSX és az ODS (sima és stílusos) javítási kérdés nélkül nyílik meg. A cellák pozíciója és
   típusa helyes, a null-rések, dátumok, logikai értékek, többsoros szövegek és a számnak vagy
@@ -197,13 +203,26 @@ Microsoft Excel for Mac 16.114-gyel ellenőrizve, macOS 15.7-en (magyar terület
   oszlopszélesség, a rögzített fejlécsor és az autoszűrő; a képleteket megnyitáskor mindkét
   formátumban kiszámolja.
 - ODS Excelben: az autoszűrő látszik, a rögzített sor nem, mert az Excel ODS-támogatása nem ismeri a
-  rögzített ablaktáblát (a saját ODS-fájljaiba sem írja).
+  rögzített ablaktáblát: a LibreOffice-szal mentett ODS-ben sem jeleníti meg.
+- A dátumoszlopok legalább olyan szélesek, amilyenre az Excel automatikus igazítása állítja őket,
+  így egyik dátum helyén sem jelenik meg `#####`.
 - A `delimiter: ';', bom: true` beállítással írt CSV oszlopokra bontva, helyes ékezetekkel nyílik
   meg; `,` elválasztóval magyar rendszeren nem bontja oszlopokra.
 - Az Excel által mentett fájlok (XLSX, valamint Mac kódlapú, CRLF vagy CR sorvégű CSV) helyes
   értékekkel és típusokkal olvashatók vissza.
 
-Az Apple Numbers és a LibreOffice ellenőrzése még hátravan.
+LibreOffice:
+
+- Az XLSX és az ODS helyes értékekkel, típusokkal és formátumokkal nyílik meg; a rögzített fejlécsor
+  és az autoszűrő mindkét formátumban látszik, a dátumoszlopok pedig legalább olyan szélesek, mint a
+  Calc optimális szélessége.
+
+Apple Numbers:
+
+- Az XLSX és a CSV helyes értékekkel, típusokkal, szám- és dátumformátummal, kiszámolt képletekkel
+  nyílik meg.
+- ODS-fájlt a Numbers egyáltalán nem tud megnyitni, és XLSX-ből (az Excel saját fájljaiból is)
+  nem jeleníti meg a rögzített sort.
 
 ## Memória
 
