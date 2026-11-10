@@ -629,7 +629,12 @@ final class OdsWriterTest extends TestCase
                 $this->assertSame('boom', $e->getMessage());
             }
 
-            $writer->close();
+            try {
+                $writer->close();
+                $this->fail('Expected exception');
+            } catch (LogicException $e) {
+                $this->assertStringContainsString('aborted', $e->getMessage());
+            }
 
             $this->assertSame([], glob($dir.'/*'));
         } finally {
@@ -728,7 +733,12 @@ final class OdsWriterTest extends TestCase
             }
 
             $this->assertSame([], glob($dir.'/*'));
-            $writer->close();
+            try {
+                $writer->close();
+                $this->fail('Expected exception');
+            } catch (LogicException $e) {
+                $this->assertStringContainsString('aborted', $e->getMessage());
+            }
         } finally {
             self::removeDirectory($dir);
         }
@@ -782,6 +792,28 @@ final class OdsWriterTest extends TestCase
         $large = $this->writeRows(300_000);
 
         $this->assertLessThan(8 * 1024 * 1024, $large - $small);
+    }
+
+    public function test_close_after_abort_throws_and_writes_nothing(): void
+    {
+        $path = Fixtures::path('ods');
+        $writer = new OdsWriter($path);
+
+        try {
+            $writer->addRow([new \stdClass]);
+            $this->fail('Expected exception');
+        } catch (InvalidArgumentException) {
+        }
+
+        try {
+            $writer->close();
+            $this->fail('Expected exception');
+        } catch (LogicException $e) {
+            $this->assertStringContainsString('aborted', $e->getMessage());
+            $this->assertStringContainsString('no file was written', $e->getMessage());
+        }
+
+        $this->assertFileDoesNotExist($path);
     }
 
     private function writeRows(int $count): int

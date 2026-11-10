@@ -218,7 +218,12 @@ final class CsvWriterTest extends TestCase
             } catch (RuntimeException) {
             }
 
-            $writer->close();
+            try {
+                $writer->close();
+                $this->fail('Expected exception');
+            } catch (LogicException $e) {
+                $this->assertStringContainsString('aborted', $e->getMessage());
+            }
 
             $this->assertSame([], glob($dir.'/*'));
         } finally {
@@ -271,6 +276,28 @@ final class CsvWriterTest extends TestCase
         $large = $this->writeRows(300_000);
 
         $this->assertLessThan(4 * 1024 * 1024, $large - $small);
+    }
+
+    public function test_close_after_abort_throws_and_writes_nothing(): void
+    {
+        $path = Fixtures::path('csv');
+        $writer = new CsvWriter($path);
+
+        try {
+            $writer->addRow([new \stdClass]);
+            $this->fail('Expected exception');
+        } catch (InvalidArgumentException) {
+        }
+
+        try {
+            $writer->close();
+            $this->fail('Expected exception');
+        } catch (LogicException $e) {
+            $this->assertStringContainsString('aborted', $e->getMessage());
+            $this->assertStringContainsString('no file was written', $e->getMessage());
+        }
+
+        $this->assertFileDoesNotExist($path);
     }
 
     private function writeRows(int $count): int

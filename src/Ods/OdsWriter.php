@@ -94,6 +94,9 @@ final class OdsWriter implements Writer
 
     private bool $closed = false;
 
+    /** True once partial output was discarded; close() then reports that no file exists. */
+    private bool $aborted = false;
+
     public function __construct(private readonly string $path)
     {
         $this->styles = new OdsStyleRegistry;
@@ -247,9 +250,16 @@ final class OdsWriter implements Writer
         return $this;
     }
 
+    /**
+     * @throws LogicException when an earlier failure aborted the write, so no file was written
+     */
     public function close(): void
     {
         if ($this->closed) {
+            if ($this->aborted) {
+                throw new LogicException('The write was aborted by an earlier error; no file was written to '.$this->path.'.');
+            }
+
             return;
         }
 
@@ -738,5 +748,6 @@ final class OdsWriter implements Writer
         $this->zipPath = null;
         $this->buffer = '';
         $this->closed = true;
+        $this->aborted = true;
     }
 }
