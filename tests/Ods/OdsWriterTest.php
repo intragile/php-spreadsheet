@@ -325,6 +325,37 @@ final class OdsWriterTest extends TestCase
         $writer->addRow([1]);
     }
 
+    public function test_too_many_columns_is_rejected_before_the_row_is_built(): void
+    {
+        $row = new class implements \Countable, \IteratorAggregate
+        {
+            public function count(): int
+            {
+                return 16385;
+            }
+
+            public function getIterator(): \Iterator
+            {
+                throw new LogicException('The oversized row was iterated.');
+            }
+        };
+
+        $this->expectException(SpreadsheetException::class);
+        $this->expectExceptionMessage('16384 columns');
+
+        (new OdsWriter(Fixtures::path('ods')))->addRow($row);
+    }
+
+    public function test_too_many_columns_from_a_generator_still_throws(): void
+    {
+        $this->expectException(SpreadsheetException::class);
+        $this->expectExceptionMessage('16384 columns');
+
+        (new OdsWriter(Fixtures::path('ods')))->addRow((static function (): Generator {
+            yield from array_fill(0, 16385, 1);
+        })());
+    }
+
     public function test_column_widths_and_freeze(): void
     {
         $path = Fixtures::path('ods');

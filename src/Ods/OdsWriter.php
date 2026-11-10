@@ -145,6 +145,11 @@ final class OdsWriter implements Writer
                 throw new SpreadsheetException(sprintf('A sheet holds at most %d rows.', self::MAX_ROWS));
             }
 
+            // Counted rows are rejected before any XML is built; other iterables are checked below.
+            if (is_countable($values) && count($values) > self::MAX_COLUMNS) {
+                throw new SpreadsheetException(sprintf('Row %d has %d cells; a sheet holds at most %d columns.', $r, count($values), self::MAX_COLUMNS));
+            }
+
             $rowAttribute = $this->styleAttribute($rowStyle);
             $xml = '<table:table-row>';
             $emitted = false;
