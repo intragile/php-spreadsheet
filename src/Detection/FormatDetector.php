@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace IntrAgile\Spreadsheet\Detection;
 
 use IntrAgile\Spreadsheet\Csv\CsvSniffer;
+use IntrAgile\Spreadsheet\Exception\CorruptFile;
 use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
 use IntrAgile\Spreadsheet\Exception\UnsupportedFormat;
 use IntrAgile\Spreadsheet\Format;
@@ -25,8 +26,17 @@ final class FormatDetector
 
     private const MAX_CONTENT_TYPES_BYTES = 1_048_576;
 
+    private const OLE2_SIGNATURE = "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1";
+
+    /** How far into an OLE2 file to look for the stream names of an encrypted Office package. */
+    private const OLE2_PROBE_BYTES = 65_536;
+
+    /** Main part content type of a binary workbook (xlsb). */
+    private const XLSB_MAIN_TYPE = 'application/vnd.ms-excel.sheet.binary.macroEnabled.main';
+
     /**
-     * @throws UnsupportedFormat when the file is recognisable but not a supported spreadsheet
+     * @throws UnsupportedFormat when the file is empty, or recognisable but not a supported spreadsheet
+     * @throws CorruptFile when the file starts like a zip archive but cannot be opened as one
      * @throws SpreadsheetException when the file cannot be read
      */
     public static function detect(string $path): Format
@@ -41,8 +51,15 @@ final class FormatDetector
             throw new SpreadsheetException("Cannot read \"{$path}\".");
         }
 
-        if (str_starts_with($head, "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1")) {
-            throw new UnsupportedFormat('Unsupported format: legacy binary Excel (xls) or another OLE2 document.');
+        // An empty upload is almost always a failed transfer; reading it as a CSV without rows would hide that.
+        if ($head === '') {
+            throw new UnsupportedFormat('Unsupported format: empty file.');
+        }
+
+        if (str_starts_with($head, self::OLE2_SIGNATURE)) {
+            throw new UnsupportedFormat(self::isEncryptedOfficePackage($path)
+                ? 'Unsupported format: password-protected Office file (an encrypted xlsx or similar); remove the password and try again.'
+                : 'Unsupported format: legacy binary Excel (xls), a password-protected Office file, or another OLE2 document.');
         }
 
         if (str_starts_with($head, "PK\x03\x04") || str_starts_with($head, "PK\x05\x06")) {
@@ -65,7 +82,7 @@ final class FormatDetector
         $zip = new ZipArchive;
 
         if ($zip->open($path, ZipArchive::RDONLY) !== true) {
-            throw new UnsupportedFormat('Unsupported format: unreadable zip container.');
+            throw new CorruptFile('The file starts like a zip archive but cannot be opened; it may be truncated or damaged.');
         }
 
         try {
@@ -87,6 +104,10 @@ final class FormatDetector
                 ? (string) $zip->getFromName('[Content_Types].xml', self::MAX_CONTENT_TYPES_BYTES)
                 : '';
 
+            if (str_contains($contentTypes, self::XLSB_MAIN_TYPE) || $zip->locateName('xl/workbook.bin') !== false) {
+                throw new UnsupportedFormat('Unsupported format: binary Excel workbook (xlsb).');
+            }
+
             if (str_contains($contentTypes, 'spreadsheetml') || $zip->locateName('xl/workbook.xml') !== false) {
                 return Format::Xlsx;
             }
@@ -99,6 +120,18 @@ final class FormatDetector
         } finally {
             $zip->close();
         }
+    }
+
+    /**
+     * An encrypted OOXML file is an OLE2 container holding "EncryptionInfo" and "EncryptedPackage"
+     * streams. Directory entry names are UTF-16LE; the directory usually sits near the start of
+     * the file, so a miss falls back to the generic OLE2 message rather than a wrong verdict.
+     */
+    private static function isEncryptedOfficePackage(string $path): bool
+    {
+        $probe = @file_get_contents($path, false, null, 0, self::OLE2_PROBE_BYTES);
+
+        return is_string($probe) && str_contains($probe, mb_convert_encoding('EncryptedPackage', 'UTF-16LE', 'UTF-8'));
     }
 
     private static function looksLikeText(string $head): bool

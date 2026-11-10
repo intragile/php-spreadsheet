@@ -6,6 +6,7 @@ namespace IntrAgile\Spreadsheet\Internal\Zip;
 
 use IntrAgile\Spreadsheet\Exception\CorruptFile;
 use IntrAgile\Spreadsheet\Exception\LimitExceeded;
+use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
 use IntrAgile\Spreadsheet\Internal\Xml\SafeXmlReader;
 use LogicException;
 use ZipArchive;
@@ -40,6 +41,7 @@ final class SafeZip
      * @param  int  $maxUncompressedBytes  Limit for a single entry and for all bytes read in total.
      * @param  int  $maxCompressionRatio  Largest allowed declared-uncompressed to compressed size ratio of one entry larger than 1 MiB.
      *
+     * @throws SpreadsheetException when the path is missing, not a regular file or not readable
      * @throws CorruptFile when the file is not a readable zip archive or holds an encrypted entry
      * @throws LimitExceeded when the archive holds too many entries or an entry declares too many bytes
      */
@@ -47,6 +49,11 @@ final class SafeZip
     {
         if (! extension_loaded('zip')) {
             throw new LogicException('ext-zip is required to read zip containers.');
+        }
+
+        // A missing file is a caller or environment problem, not a damaged archive.
+        if (! is_file($path) || ! is_readable($path)) {
+            throw new SpreadsheetException("Cannot read \"{$path}\".");
         }
 
         $zip = new ZipArchive;

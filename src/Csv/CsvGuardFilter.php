@@ -196,11 +196,21 @@ final class CsvGuardFilter extends php_user_filter
      * Skips the complete records at a record start in one regular-expression match, as long as
      * none of them can break a limit: a run no longer than the field limit holds no longer field,
      * and a run with fewer delimiters than the field cap holds no record with too many fields.
+     * When the field limit is smaller than the remaining data, the match is confined to a window
+     * of that size so short records keep the fast path; the caller comes back for the next window.
      * Returns where the slower scan has to continue.
      */
     private function skipRecords(string $data, int $position): int
     {
-        if (preg_match($this->records, $data, $match, 0, $position) !== 1 || $match[0] === '') {
+        $subject = $data;
+        $offset = $position;
+
+        if (strlen($data) - $position > $this->maxFieldBytes) {
+            $subject = substr($data, $position, $this->maxFieldBytes);
+            $offset = 0;
+        }
+
+        if (preg_match($this->records, $subject, $match, 0, $offset) !== 1 || $match[0] === '') {
             return $position;
         }
 

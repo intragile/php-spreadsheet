@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace IntrAgile\Spreadsheet\Tests\Support;
 
-use PHPUnit\Framework\SkippedWithMessageException;
 use RuntimeException;
 use ZipArchive;
 
@@ -30,10 +29,6 @@ final class Fixtures
     public static function zip(array $entries, string $extension = 'zip'): string
     {
         $path = self::path($extension);
-        if (! class_exists(ZipArchive::class)) {
-            throw new SkippedWithMessageException('ext-zip is required to build this fixture.');
-        }
-
         $zip = new ZipArchive;
 
         if ($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
