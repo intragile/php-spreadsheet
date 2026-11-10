@@ -104,6 +104,22 @@ dátumrendszert is beleértve. Ezzel szemben az **XLS-olvasás nem folyamatos**:
 kerül. A munkalapok méretét előbb olvassa ki, és az a munkafüzet, amelynek lapjain több cella van a `maxCells`
 értéknél, a betöltés előtt `LimitExceeded` kivételt kap. XLS-fájl nem írható.
 
+### Fájl vizsgálata
+
+A `FileInspector::inspect($path)` minden munkalap első 20 nem üres sorát végignézi (a `scanRows`-szal
+állítható), és megadja a formátumot, munkalaponként a tippelt fejlécsort (valódi, 1-től induló sorszám vagy
+`null`), az oszlopszámot és a mintasorokat, valamint a `firstDataSheet`-et, az első látható, adatot tartalmazó
+munkalapot. Fejlécnek az első olyan átvizsgált sor számít, amelyben legalább két nem szám jellegű szöveges
+cella van, és amelyet nem üres sor követ. A `FileInspector::countCells($path, stopAbove: 500_000)` a nem üres
+cellákat számolja, és a határ átlépésekor azonnal megáll (`exceeded`), így egy túlméretes munkalap az egész
+beolvasása nélkül kiszűrhető.
+
+```php
+$inspection = FileInspector::inspect('contacts.xlsx');
+$sheet = $inspection->sheets[$inspection->firstDataSheet ?? 0];
+$header = $sheet->headerRow; // pl. 3
+```
+
 ## Írás
 
 A formátum a fájlkiterjesztésből adódik (`.xlsx`, `.ods`, `.csv`/`.txt`; a `.txt` CSV-ként íródik), vagy megadható `Format`.

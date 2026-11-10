@@ -100,6 +100,21 @@ not streaming**: the whole workbook is loaded into memory. The sheet dimensions 
 workbook whose sheets hold more cells than `maxCells` is rejected with `LimitExceeded` before anything is
 loaded. XLS files cannot be written.
 
+### Inspecting a file
+
+`FileInspector::inspect($path)` scans the first 20 non-empty rows of every sheet (adjustable with
+`scanRows`) and reports the format, each sheet's guessed header row (a real 1-based row number, or `null`),
+column count and sample rows, and `firstDataSheet`, the first visible sheet with data. The header is the
+first scanned row with at least two non-numeric text cells that is followed by a non-empty row.
+`FileInspector::countCells($path, stopAbove: 500_000)` counts non-empty cells and stops as soon as the limit
+is passed (`exceeded`), so an oversized sheet is rejected without reading all of it.
+
+```php
+$inspection = FileInspector::inspect('contacts.xlsx');
+$sheet = $inspection->sheets[$inspection->firstDataSheet ?? 0];
+$header = $sheet->headerRow; // e.g. 3
+```
+
 ## Writing
 
 The format follows the file extension (`.xlsx`, `.ods`, `.csv`/`.txt`; `.txt` is written as CSV), or pass a `Format`.
