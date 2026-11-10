@@ -9,25 +9,30 @@ Compares `intragile/php-spreadsheet` with `spatie/simple-excel` (OpenSpout) and 
 
 ```bash
 cd bench
-timeout 600 composer install          # path repository "../" (symlinked) + both competitors + Testbench
-php run.php                            # defaults: 100k and 1M rows, all libraries, all scenarios
+composer install                       # path repository "../" (symlinked) + both competitors + Testbench
+php run.php --repeat=3 --var-dir=/path/on/internal/disk/bench-var
 php report.php --in=results.json       # renders RESULTS.md from results.json
 ```
+
+macOS has no `timeout` command; if you want to bound `composer install`, install GNU coreutils and use
+`gtimeout 600 composer install`. The benchmark itself does not need it: `run.php` enforces its own per-case limit.
 
 `run.php` options:
 
 | Option | Default | Meaning |
 |---|---|---|
 | `--rows=` | `100000,1000000` | comma-separated row counts |
-| `--libs=` | `ours,spatie,maatwebsite` | libraries to run |
+| `--libs=` | `none,ours,spatie,maatwebsite` | libraries to run; `none` is the generator-only floor (write scenarios only) |
 | `--scenarios=` | `W1,W2,W3,R1,R2,X1` | scenarios to run |
 | `--timeout=` | `600` | per-case wall-clock limit in seconds (the case is killed and recorded as `timeout`) |
+| `--repeat=` | `1` | runs per case; the library order is rotated on every repetition (ours, spatie, maatwebsite; then spatie, maatwebsite, ours; ...) so none is always first or last; the report shows median and minimum |
+| `--var-dir=` | `bench/var` | where generated inputs and output files live; use the internal disk, not an external drive, and the device is recorded in the report |
 | `--out=` | `results.json` | results file, one JSON object per line (JSON Lines), appended |
 
 It prints a timestamped `START` and `DONE` line per case, so a long run can be followed with `tail -f`.
-A quick check that every case works: `php run.php --rows=2000 --out=var/smoke.json`.
+A quick check that every case works: `php run.php --rows=2000 --repeat=2 --out=var/smoke.json`.
 
-To run a single case: `php -d memory_limit=2G run-one.php <ours|spatie|maatwebsite> <W1|W2|W3|R1|R2|X1> <rows>`.
+To run a single case: `BENCH_VAR_DIR=var php -d memory_limit=2G run-one.php <none|ours|spatie|maatwebsite> <W1|W2|W3|R1|R2|X1> <rows>`.
 
 ## Scenarios
 
@@ -42,11 +47,14 @@ To run a single case: `php -d memory_limit=2G run-one.php <ours|spatie|maatwebsi
 
 ## Method
 
-- Data: 10 columns (int id, float, short string from a 1,000-word pool, unique string, date, bool, int, float, two strings), generated lazily by `generate.php` with `mt_srand(20261109)`; identical for every library.
-- Each case runs in a fresh `php -d memory_limit=2G` process. Time is measured with `hrtime` around the operation only. Memory is `memory_get_peak_usage(true)` plus the figure above the post-boot baseline (so the Laravel boot needed by maatwebsite is not counted against it) and the process max RSS.
-- Written files are re-read with the IntrAgile reader (row count and id checksum); readers verify the row count and id checksum of what they streamed. Any mismatch is `ok: false`.
-- maatwebsite: `FromGenerator` + `WithCustomChunkSize(1000)` (and `WithStyles`, `WithColumnWidths`, `WithColumnFormatting` for W2); `OnEachRow` + `WithChunkReading(1000)` for reading; no models or database.
-- spatie: `SimpleExcelWriter` / `SimpleExcelReader` with `noHeaderRow()`; W2 applies the header style only and is marked partial.
+- Data: 10 columns (int id, float, short string from a 1,000-word pool, unique string, date, bool, int, float, two strings), generated lazily by `generate.php` with an isolated `Random\Randomizer` (`Mt19937`, seed 20261109); identical for every library.
+- Each case runs in a fresh `php -d memory_limit=2G` process. Time is measured with `hrtime` around the operation only. Memory is `memory_get_peak_usage(true)` (reset after boot) plus the figure above the post-boot baseline (so the Laravel boot needed by maatwebsite is not counted against it) and the process max RSS, sampled right after the timed region.
+- The `none` pseudo-library only iterates the generator: it is the floor every library pays for producing the rows.
+- Written files are re-read with the IntrAgile reader and compared with the generator on the first, middle and last row and every 997th row across all 10 columns. Xlsx is compared strictly by type (a date must come back as a date, a bool as a bool, numbers as numbers); CSV is compared by each library's own text form. Readers verify the row count and id checksum of what they streamed. Any mismatch is `ok: false`. The cached R1/R2 inputs carry a fingerprint of the writer sources and are regenerated when it changes.
+- Equal work per library:
+  - dates are real, formatted date cells in every xlsx file: ours natively; spatie through an explicit OpenSpout `Row` with a `DateTimeCell` carrying a `yyyy-mm-dd` style (OpenSpout otherwise writes a bare serial); maatwebsite as serial plus a `yyyy-mm-dd` column format;
+  - maatwebsite: `FromGenerator` with `WithStrictNullComparison` (otherwise `false` is written as an empty cell); `WithStyles`, `WithColumnWidths`, `WithColumnFormatting` for W2; `WithCustomChunkSize` only affects query and scout exports, so it is not used; `OnEachRow` + `WithChunkReading(1000)` for reading, no models or database;
+  - spatie: `SimpleExcelWriter` / `SimpleExcelReader` with `noHeaderRow()`; W2 applies the header style and the date format only and is marked partial; its CSV writes dates as `DATE_ATOM` while ours and maatwebsite write `Y-m-d`.
 
 Generated files live in `var/` (git-ignored); `vendor/` is git-ignored too.
 

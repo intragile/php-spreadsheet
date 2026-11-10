@@ -5,12 +5,14 @@ declare(strict_types=1);
 /**
  * Deterministic benchmark data and input-file generator.
  *
- * Library usage: BenchData::rows($n) yields the same rows in every process.
- * CLI usage:     php generate.php <rows> [<rows>...]   builds bench/var/input-<rows>.{xlsx,csv}
+ * Library usage: BenchData::rows($n) yields the same rows in every process (isolated Mt19937 seeded with 20261109).
+ * CLI usage:     php generate.php <rows> [<rows>...]   builds <var-dir>/input-<rows>.{xlsx,csv}
  *                with the IntrAgile writer (the file under test is never produced by a competitor).
  */
 
 use IntrAgile\Spreadsheet\Spreadsheet;
+use Random\Engine\Mt19937;
+use Random\Randomizer;
 
 require __DIR__.'/vendor/autoload.php';
 
@@ -34,14 +36,15 @@ final class BenchData
      */
     public static function rows(int $count): Generator
     {
-        mt_srand(self::SEED);
+        // Isolated generator: independent of the global mt_rand() state and identical in every process.
+        $rng = new Randomizer(new Mt19937(self::SEED));
 
         $pool = [];
         for ($w = 0; $w < 1000; $w++) {
             $word = '';
-            $length = mt_rand(4, 10);
+            $length = $rng->getInt(4, 10);
             for ($c = 0; $c < $length; $c++) {
-                $word .= chr(97 + mt_rand(0, 25));
+                $word .= chr(97 + $rng->getInt(0, 25));
             }
             $pool[] = $word;
         }
@@ -49,15 +52,15 @@ final class BenchData
         for ($i = 1; $i <= $count; $i++) {
             yield $i => [
                 $i,
-                round(mt_rand(0, 99_999_999) / 1000, 3),
-                $pool[mt_rand(0, 999)],
-                sprintf('U%08d-%s', $i, dechex(mt_rand())),
-                (new DateTimeImmutable('@'.(self::DATE_BASE + mt_rand(0, 2500) * 86400)))->setTimezone(new DateTimeZone('UTC')),
-                mt_rand(0, 1) === 1,
-                mt_rand(-1_000_000, 1_000_000),
-                round(mt_rand(0, 9_999_999) / 10_000, 4),
-                $pool[mt_rand(0, 999)].' '.$pool[mt_rand(0, 999)],
-                'Row '.$i.' / '.$pool[mt_rand(0, 999)],
+                round($rng->getInt(0, 99_999_999) / 1000, 3),
+                $pool[$rng->getInt(0, 999)],
+                sprintf('U%08d-%s', $i, dechex($rng->getInt(0, 2_147_483_647))),
+                (new DateTimeImmutable('@'.(self::DATE_BASE + $rng->getInt(0, 2500) * 86400)))->setTimezone(new DateTimeZone('UTC')),
+                $rng->getInt(0, 1) === 1,
+                $rng->getInt(-1_000_000, 1_000_000),
+                round($rng->getInt(0, 9_999_999) / 10_000, 4),
+                $pool[$rng->getInt(0, 999)].' '.$pool[$rng->getInt(0, 999)],
+                'Row '.$i.' / '.$pool[$rng->getInt(0, 999)],
             ];
         }
     }
@@ -68,6 +71,30 @@ final class BenchData
         return $date->getTimestamp() / 86400 + self::SERIAL_EPOCH_OFFSET;
     }
 
+    /** Directory for generated files; overridable with BENCH_VAR_DIR (set by run.php --var-dir). */
+    public static function varDir(): string
+    {
+        $dir = getenv('BENCH_VAR_DIR');
+
+        return $dir !== false && $dir !== '' ? $dir : __DIR__.'/var';
+    }
+
+    /** Identity of the code that produces the cached input files: both writers and this generator. */
+    public static function fingerprint(): string
+    {
+        $root = dirname(__DIR__);
+
+        return sha1(sha1_file($root.'/src/Xlsx/XlsxWriter.php').sha1_file($root.'/src/Csv/CsvWriter.php').sha1_file(__FILE__));
+    }
+
+    /** True when $path exists and its meta file matches the row count and the current writer fingerprint. */
+    public static function inputIsCurrent(string $path, int $rows): bool
+    {
+        $meta = json_decode((string) @file_get_contents("$path.meta.json"), true);
+
+        return is_file($path) && is_array($meta) && ($meta['rows'] ?? null) === $rows && ($meta['fingerprint'] ?? null) === self::fingerprint();
+    }
+
     /** Sum of the id column for ids 1..$count, used as a cheap content checksum. */
     public static function idSum(int $count): int
     {
@@ -76,7 +103,7 @@ final class BenchData
 }
 
 if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
-    $var = __DIR__.'/var';
+    $var = BenchData::varDir();
     is_dir($var) || mkdir($var, 0777, true);
 
     foreach (array_slice($argv, 1) as $arg) {
@@ -84,7 +111,7 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
         foreach (['xlsx', 'csv'] as $ext) {
             $path = "$var/input-$rows.$ext";
             $meta = "$path.meta.json";
-            if (is_file($path) && is_file($meta) && (json_decode((string) file_get_contents($meta), true)['rows'] ?? null) === $rows) {
+            if (BenchData::inputIsCurrent($path, $rows)) {
                 continue;
             }
 
@@ -108,7 +135,7 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
                 exit(1);
             }
 
-            file_put_contents($meta, json_encode(['rows' => $rows, 'bytes' => filesize($path)]));
+            file_put_contents($meta, json_encode(['rows' => $rows, 'bytes' => filesize($path), 'fingerprint' => BenchData::fingerprint()]));
             echo "generated $path (".round(filesize($path) / 1048576, 1)." MB)\n";
         }
     }

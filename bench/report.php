@@ -20,12 +20,14 @@ foreach (array_slice($argv, 1) as $arg) {
     }
 }
 
-/** Latest result per library, scenario and row count. */
+/** All runs per scenario, row count and library, in file order. */
 $results = [];
+$storage = null;
 foreach (file($in, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
     $r = json_decode($line, true);
     if (is_array($r)) {
-        $results[$r['scenario']][$r['rows']][$r['lib']] = $r;
+        $results[$r['scenario']][$r['rows']][$r['lib']][] = $r;
+        $storage = $r['var_dir'] ?? $storage;
     }
 }
 
@@ -34,7 +36,20 @@ function sh(string $cmd): string
     return trim((string) shell_exec($cmd.' 2>/dev/null'));
 }
 
-$libs = ['ours' => 'intragile/php-spreadsheet', 'spatie' => 'spatie/simple-excel', 'maatwebsite' => 'maatwebsite/excel'];
+/** @param list<float|int> $values */
+function median(array $values): ?float
+{
+    if ($values === []) {
+        return null;
+    }
+    sort($values);
+    $n = count($values);
+
+    return $n % 2 === 1 ? (float) $values[intdiv($n, 2)] : ($values[$n / 2 - 1] + $values[$n / 2]) / 2;
+}
+
+$libs = ['none' => 'generator only (floor)', 'ours' => 'intragile/php-spreadsheet', 'spatie' => 'spatie/simple-excel', 'maatwebsite' => 'maatwebsite/excel'];
+$realLibs = array_diff_key($libs, ['none' => 1]);
 $versions = [];
 $lock = json_decode((string) file_get_contents(__DIR__.'/composer.lock'), true);
 foreach ($lock['packages'] as $package) {
@@ -51,22 +66,23 @@ $scenarioTitles = [
 
 $notes = [
     'W1' => [
-        'All libraries write the same 10 columns from the same lazy generator (the generator cost is identical for everyone).',
-        'maatwebsite has no date cell type: the date column is written as a serial number plus a `yyyy-mm-dd` column format (`WithColumnFormatting`), which the other two libraries do natively. That is extra work for maatwebsite that is necessary to produce an equivalent file.',
-        'maatwebsite goes through `FromGenerator` + `WithCustomChunkSize(1000)`; PhpSpreadsheet still keeps all cells of the sheet in memory until the file is saved.',
-        'spatie/OpenSpout writes list rows with `noHeaderRow()`.',
+        'All libraries write the same 10 columns from the same lazy generator. The "generator only" row is the cost of producing the rows with no library involved, i.e. the floor every library pays.',
+        'Dates: ours writes a native date cell (`yyyy-mm-dd`). OpenSpout emits a bare serial for a date cell without a style, so for spatie the date column is built as an explicit OpenSpout `Row` whose `DateTimeCell` carries a `yyyy-mm-dd` style (`SimpleExcelWriter::addRow` accepts `Row` objects). maatwebsite has no date cell type: the column is written as a serial plus a `yyyy-mm-dd` column format (`WithColumnFormatting`). All three files therefore contain real, formatted date cells.',
+        'maatwebsite uses `FromGenerator` with `WithStrictNullComparison` (without it Laravel Excel writes `false` as an empty cell, which the output verification caught). `WithCustomChunkSize` only affects query and scout exports, so it is a no-op for generators and is not used. PhpSpreadsheet keeps all cells of the sheet in memory until the file is saved.',
+        'spatie/OpenSpout writes with `noHeaderRow()`.',
+        'Every written file is re-read with the IntrAgile reader after the timed region and compared with the generator on the first, middle and last row and every 997th row, all 10 columns, with strict types (date as date, bool as bool, numbers as numbers). A mismatch makes the case `FAILED`.',
     ],
     'W2' => [
-        '**spatie is partial**: it applies the header style (bold, fill, border) but NOT the number formats on 2 columns and NOT the column widths, so it does less work than the other two.',
+        '**spatie is partial**: it applies the header style (bold, fill, border) and the date format, but NOT the number formats on the two float columns and NOT the column widths, so it does less work than the other two.',
         'ours: header `Style` row, `Cell::of` with a number format on columns 2 and 8, column widths for all 10 columns. maatwebsite: `WithStyles` (header row), `WithColumnFormatting` (columns B, E, H), `WithColumnWidths`.',
-        'Both numeric formats and the date format are applied through the library API a normal user would use.',
+        'The same strict output verification as W1 applies (the header row is checked too).',
     ],
     'W3' => [
-        'maatwebsite writes the date as text `Y-m-d` (the others format dates themselves); booleans are written in each library\'s own CSV representation.',
-        'spatie/OpenSpout and ours stream to the file; maatwebsite builds a PhpSpreadsheet sheet first.',
+        'The CSV forms differ per library and are verified per library: ours and maatwebsite write dates as `Y-m-d`, spatie (OpenSpout) writes `DATE_ATOM` (`2021-11-24T00:00:00+00:00`); booleans are `1`/`0` for ours and spatie and `TRUE`/`FALSE` for maatwebsite. These are the libraries\' defaults, so the files are not byte-identical.',
+        'ours and spatie stream to the file; maatwebsite builds a PhpSpreadsheet sheet first.',
     ],
     'R1' => [
-        'The input file is produced once by the IntrAgile writer (cell references on every cell, no `<dimension>`, inline strings). This favours no library on parsing speed, but see X1: it was checked that all three libraries read it with the same row count and identical values.',
+        'The input file is produced once by the IntrAgile writer (cell references on every cell, no `<dimension>`, inline strings). X1 checks that all three libraries read this shape with the same row count and identical values; the cached input is regenerated whenever the writer sources change.',
         'Every library iterates all rows; the checksum (row count and sum of the id column) is computed in the callback and verified, so lazily-skipped parsing would be detected.',
         'maatwebsite reads with `OnEachRow` + `WithChunkReading(1000)` (raw values, no number-format rendering, no models or database). spatie reads with `noHeaderRow()` so it returns the same number of rows.',
     ],
@@ -93,17 +109,23 @@ $out_[] = '- PHP: `'.sh('php -v | head -1').'`';
 $out_[] = '- OS: '.(PHP_OS_FAMILY === 'Darwin' ? sh('sw_vers -productName').' '.sh('sw_vers -productVersion').' ('.sh('uname -m').')' : sh('uname -sr'));
 $out_[] = '- CPU: '.(PHP_OS_FAMILY === 'Darwin' ? sh('sysctl -n machdep.cpu.brand_string').', '.sh('sysctl -n hw.ncpu').' cores' : sh("grep -m1 'model name' /proc/cpuinfo | cut -d: -f2"));
 $out_[] = '- RAM: '.(PHP_OS_FAMILY === 'Darwin' ? round((int) sh('sysctl -n hw.memsize') / 1073741824).' GB' : sh("awk '/MemTotal/ {printf \"%.0f GB\", $2/1048576}' /proc/meminfo"));
+$out_[] = '- Data files (var-dir): '.($storage ?? 'not recorded');
 $out_[] = '- Libraries: '.implode(', ', array_map(static fn (string $name): string => "`$name` ".($versions[$name] ?? 'dev'), ['maatwebsite/excel', 'spatie/simple-excel', 'openspout/openspout', 'phpoffice/phpspreadsheet'])).', `intragile/php-spreadsheet` (path repository, working tree)';
-$out_[] = '- Each case runs in a fresh `php -d memory_limit=2G` process with a hard wall-clock limit; the file is verified afterwards with the IntrAgile reader (row count and id checksum) and a mismatch marks the case as failed.';
+$out_[] = '- Each case runs in a fresh `php -d memory_limit=2G` process with a hard wall-clock limit. With repeats, the library order is rotated on every repetition.';
 $out_[] = '';
 $out_[] = '## How to read the tables';
 $out_[] = '';
-$out_[] = '- **Seconds**: wall time of the operation only (`hrtime`), after the process and (for maatwebsite) the Laravel application were booted.';
-$out_[] = '- **Peak MB**: `memory_get_peak_usage(true)` of the whole process. **Over baseline**: the same minus `memory_get_usage(true)` right after boot, so framework overhead does not distort the comparison. **RSS MB**: `getrusage` max resident set, which also covers native memory (zip, libxml) that PHP\'s allocator does not count.';
-$out_[] = '- `OOM`, `timeout` and `FAILED` are written out; nothing is omitted. `not run` means the case was not part of this run.';
+$out_[] = '- **Seconds**: wall time of the operation only (`hrtime`), after the process and (for maatwebsite) the Laravel application were booted. Median over the runs, minimum in parentheses.';
+$out_[] = '- **Peak MB**: `memory_get_peak_usage(true)` during the operation (the peak counter is reset after boot). **Over baseline**: the same minus `memory_get_usage(true)` right after boot, so framework overhead does not distort the comparison. **RSS MB**: `getrusage` max resident set sampled right after the timed region; it also covers native memory (zip, libxml) that PHP\'s allocator does not count.';
+$out_[] = '- **Runs**: successful runs / total runs. `OOM`, `timeout` and `FAILED` are written out; nothing is omitted. `not run` means the case was not part of this run.';
 $out_[] = '';
 
-$fmt = static fn (mixed $v, int $d = 1): string => $v === null ? 'n/a' : number_format((float) $v, $d, '.', '');
+$num = static fn (?float $v, int $d = 1): string => $v === null ? 'n/a' : number_format($v, $d, '.', '');
+$stat = static function (array $values, int $d = 1) use ($num): string {
+    $m = median($values);
+
+    return $m === null ? 'n/a' : $num($m, $d).(count($values) > 1 ? ' ('.$num(min($values), $d).')' : '');
+};
 
 foreach ($scenarioTitles as $id => $title) {
     $out_[] = "## $title";
@@ -114,26 +136,38 @@ foreach ($scenarioTitles as $id => $title) {
         $out_[] = '_not run_';
         $out_[] = '';
     } else {
-        $out_[] = '| Rows | Library | Status | Seconds | Peak MB | Over baseline MB | RSS MB | Rows/s |';
-        $out_[] = '|---:|---|---|---:|---:|---:|---:|---:|';
+        $out_[] = '| Rows | Library | Status | Runs | Seconds median (min) | Peak MB median (min) | Over baseline MB | RSS MB | Rows/s |';
+        $out_[] = '|---:|---|---|---:|---:|---:|---:|---:|---:|';
         foreach ($sizes as $rows) {
             foreach ($libs as $key => $name) {
-                $r = $results[$id][$rows][$key] ?? null;
-                if ($r === null) {
-                    $out_[] = "| $rows | $name | not run | | | | | |";
+                if ($key === 'none' && $id[0] !== 'W') {
+                    continue;
+                }
+                $runs = $results[$id][$rows][$key] ?? [];
+                if ($runs === []) {
+                    if ($key !== 'none') {
+                        $out_[] = "| $rows | $name | not run | | | | | | |";
+                    }
 
                     continue;
                 }
-                $error = (string) ($r['error'] ?? '');
-                $status = $r['ok'] ? 'ok' : (str_starts_with($error, 'OOM') ? 'OOM' : (str_starts_with($error, 'timeout') ? 'timeout' : 'FAILED'));
-                if (! $r['ok'] && $status === 'FAILED') {
-                    $status .= ': '.str_replace('|', '/', substr($error, 0, 140));
-                } elseif (! $r['ok']) {
-                    $status .= ' ('.str_replace('|', '/', substr($error, 0, 90)).')';
+                $good = array_values(array_filter($runs, static fn (array $r): bool => $r['ok']));
+                $bad = array_values(array_filter($runs, static fn (array $r): bool => ! $r['ok']));
+                $status = 'ok';
+                if ($bad !== []) {
+                    $error = (string) ($bad[0]['error'] ?? '');
+                    $kind = str_starts_with($error, 'OOM') ? 'OOM' : (str_starts_with($error, 'timeout') ? 'timeout' : 'FAILED');
+                    $status = $kind.' ('.str_replace('|', '/', substr($error, 0, $kind === 'FAILED' ? 220 : 90)).')';
                 }
                 $partial = ($id === 'W2' && $key === 'spatie') ? ' (partial)' : '';
-                $rate = ($r['ok'] && ($r['seconds'] ?? 0) > 0) ? number_format($rows / $r['seconds'], 0, '.', ' ') : 'n/a';
-                $out_[] = "| $rows | $name$partial | $status | ".$fmt($r['seconds'], 2).' | '.$fmt($r['peak_mb'] ?? null).' | '.$fmt($r['peak_over_baseline_mb'] ?? null).' | '.$fmt($r['rss_mb'] ?? null).' | '.$rate.' |';
+                $seconds = array_map(static fn (array $r): float => (float) $r['seconds'], $good);
+                $medianSeconds = median($seconds);
+                $rate = ($medianSeconds !== null && $medianSeconds > 0) ? number_format($rows / $medianSeconds, 0, '.', ' ') : 'n/a';
+                $out_[] = "| $rows | $name$partial | $status | ".count($good).'/'.count($runs).' | '
+                    .$stat($seconds, 2).' | '
+                    .$stat(array_map(static fn (array $r): float => (float) $r['peak_mb'], $good)).' | '
+                    .$stat(array_map(static fn (array $r): float => (float) $r['peak_over_baseline_mb'], $good)).' | '
+                    .$stat(array_map(static fn (array $r): float => (float) $r['rss_mb'], $good)).' | '.$rate.' |';
             }
         }
         $out_[] = '';
@@ -150,8 +184,8 @@ $out_[] = 'Three fixtures are written by the IntrAgile writer: a plain file and 
 $out_[] = '';
 $out_[] = '| Library | Verdict | plain + gaps | styled + gaps | R1 input |';
 $out_[] = '|---|---|---|---|---|';
-foreach ($libs as $key => $name) {
-    $r = $results['X1'][10000][$key] ?? null;
+foreach ($realLibs as $key => $name) {
+    $r = isset($results['X1'][10000][$key]) ? end($results['X1'][10000][$key]) : null;
     if ($r === null) {
         $out_[] = "| $name | not run | | | |";
 
@@ -165,9 +199,11 @@ foreach ($libs as $key => $name) {
     $out_[] = "| $name | ".($r['ok'] ? 'ok' : 'MISMATCH').' | '.$cell('plain-gaps').' | '.$cell('styled-gaps').' | '.$cell('r1-input').' |';
 }
 $out_[] = '';
-foreach ($libs as $key => $name) {
-    $r = $results['X1'][10000][$key] ?? null;
+$anyMismatch = false;
+foreach ($realLibs as $key => $name) {
+    $r = isset($results['X1'][10000][$key]) ? end($results['X1'][10000][$key]) : null;
     if ($r !== null && ! $r['ok'] && ($r['mismatches'] ?? []) !== []) {
+        $anyMismatch = true;
         $out_[] = "First mismatches for $name:";
         $out_[] = '';
         foreach (array_slice($r['mismatches'], 0, 6) as $m) {
@@ -179,19 +215,19 @@ foreach ($libs as $key => $name) {
         $out_[] = '';
     }
 }
-
-if (($results['X1'][10000]['maatwebsite']['ok'] ?? true) === false && ($results['X1'][10000]['maatwebsite']['mismatches'] ?? []) !== []) {
-    $out_[] = 'Diagnosis (inspected by hand in the fixture XML and in PhpSpreadsheet\'s `Reader\\Xlsx::loadSheetData`): the IntrAgile writer puts an `r` attribute only on the first cell after a gap and none on the cells that follow it. The spec allows that, and the IntrAgile reader and OpenSpout resynchronise on the explicit `r`, but PhpSpreadsheet (the engine behind maatwebsite/excel) counts cells without `r` positionally and does not resynchronise, so every cell after a gap lands in the wrong column. Files without gaps are read correctly by all three. This is a compatibility defect of the writer, not a benchmark artefact.';
+if ($anyMismatch) {
+    $out_[] = 'A mismatch means that library read a file written by the IntrAgile writer differently from the generated data; this is a compatibility finding about the writer or the reader, not a benchmark artefact.';
     $out_[] = '';
 }
 
 $out_[] = '## Scenario equivalence summary';
 $out_[] = '';
-$out_[] = '- Same data: one deterministic generator (`mt_srand(20261109)`), identical values for every library, produced lazily.';
+$out_[] = '- Same data: one deterministic generator (isolated `Random\Randomizer` with `Mt19937` seeded 20261109), identical values for every library, produced lazily.';
 $out_[] = '- spatie is not booted through Laravel (it does not need it); maatwebsite is booted through Orchestra Testbench, and the boot cost is excluded from both time and the over-baseline memory figure.';
-$out_[] = '- spatie W2 is partial (header style only).';
-$out_[] = '- maatwebsite writes dates as serial + format in xlsx and as text in csv; the other libraries write native dates.';
+$out_[] = '- spatie W2 is partial (header style and date format only).';
+$out_[] = '- Dates are real date cells in every xlsx file (see the W1 notes for how each library gets there); in CSV each library writes its own default date and boolean forms.';
 $out_[] = '- The input files of R1/R2 come from the IntrAgile writer; X1 shows whether the other two libraries read that shape correctly.';
+$out_[] = '- Output files are verified with strict types on sampled rows across all 10 columns; any mismatch fails the case.';
 $out_[] = '';
 $out_[] = 'Reproduce with the commands in [README.md](README.md).';
 $out_[] = '';
