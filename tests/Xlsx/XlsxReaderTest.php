@@ -381,6 +381,18 @@ final class XlsxReaderTest extends TestCase
         $this->assertSame([1 => ["line1\rline2 _x000D_", '#N/A_x000D_']], iterator_to_array((new XlsxReader($path, new ReadOptions))->rows()));
     }
 
+    public function test_non_numeric_untyped_value_beyond_the_cell_limit_is_refused(): void
+    {
+        $path = self::singleSheet('<row r="1"><c r="A1"><v>abcdefghijk</v></c><c r="B1" t="n"><v>lmnopqrstuv</v></c></row>');
+
+        $this->assertSame([1 => ['abcdefghijk', 'lmnopqrstuv']], iterator_to_array((new XlsxReader($path, new ReadOptions(maxCellBytes: 11)))->rows()));
+
+        $this->expectException(LimitExceeded::class);
+        $this->expectExceptionMessage('A cell holds more than 10 bytes of text.');
+
+        iterator_to_array((new XlsxReader($path, new ReadOptions(maxCellBytes: 10)))->rows());
+    }
+
     public function test_shared_string_count_is_limited(): void
     {
         $path = self::withSharedStrings(str_repeat('<si><t>a</t></si>', 4), '<row r="1"><c r="A1" t="s"><v>0</v></c></row>');

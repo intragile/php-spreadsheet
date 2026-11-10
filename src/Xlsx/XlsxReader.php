@@ -265,6 +265,10 @@ final class XlsxReader implements Reader
                             }
 
                             if (! is_numeric($raw)) {
+                                if (strlen($raw) > $maxCellBytes) {
+                                    throw self::cellTooLong($maxCellBytes);
+                                }
+
                                 $value = $raw;
                             } elseif ($style !== null && isset($dateStyles[(int) $style])
                                 && (isset($dates[$raw]) || self::isCalendarSerial($raw))) {
