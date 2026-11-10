@@ -33,10 +33,17 @@ final class SerialDate
 
     private const EPOCH_1904 = -24107;
 
+    /** Last second of 9999-12-31, the end of the spreadsheet calendar in the 1900 system. */
+    public const MAX_SERIAL = 2958465.99999;
+
+    /**
+     * @throws InvalidArgumentException when the serial lies outside 0..MAX_SERIAL
+     */
     public static function toDateTime(float $serial, bool $date1904 = false): DateTimeImmutable
     {
-        if (! is_finite($serial)) {
-            throw new InvalidArgumentException('A date serial must be a finite number.');
+        // Also rejects NAN and INF, which fail every comparison or the upper bound.
+        if (! ($serial >= 0.0 && $serial <= self::MAX_SERIAL)) {
+            throw new InvalidArgumentException(sprintf('A date serial must lie between 0 and %s.', self::MAX_SERIAL));
         }
 
         $seconds = (int) round($serial * self::SECONDS_PER_DAY);

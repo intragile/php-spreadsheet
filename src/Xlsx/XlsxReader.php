@@ -266,7 +266,9 @@ final class XlsxReader implements Reader
 
                             if (! is_numeric($raw)) {
                                 $value = $raw;
-                            } elseif ($style !== null && isset($dateStyles[(int) $style])) {
+                            } elseif ($style !== null && isset($dateStyles[(int) $style])
+                                && (isset($dates[$raw]) || self::isCalendarSerial($raw))) {
+                                // Serials outside the calendar skip this branch and stay numbers.
                                 // Immutable, so one instance can serve every cell with the same serial.
                                 if (! isset($dates[$raw])) {
                                     if (count($dates) >= self::DATE_CACHE_SIZE) {
@@ -554,6 +556,16 @@ final class XlsxReader implements Reader
     private static function isoDate(?string $raw): ?DateTimeImmutable
     {
         return $raw === null || $raw === '' ? null : IsoDate::parse($raw);
+    }
+
+    /**
+     * Whether a numeric cell value is a serial a date can be made of (0 up to 9999-12-31).
+     */
+    private static function isCalendarSerial(string $raw): bool
+    {
+        $serial = (float) $raw;
+
+        return $serial >= 0.0 && $serial <= SerialDate::MAX_SERIAL;
     }
 
     private static function cellTooLong(int $maxBytes): LimitExceeded

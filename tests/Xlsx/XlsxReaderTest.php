@@ -417,6 +417,32 @@ final class XlsxReaderTest extends TestCase
         new XlsxReader($path, new ReadOptions(maxCompressionRatio: 1_000_000));
     }
 
+    public function test_date_styled_serials_outside_the_calendar_stay_numbers(): void
+    {
+        $cells = '';
+
+        foreach (['1e15', '1e300', '1e400', '-1', '2958466', '2958465.99999', '45658.5', '0'] as $column => $serial) {
+            $cells .= '<c r="'.chr(65 + $column).'1" s="1"><v>'.$serial.'</v></c>';
+        }
+
+        $path = Fixtures::zip([
+            '_rels/.rels' => self::packageRels(),
+            'xl/workbook.xml' => self::workbook(),
+            'xl/_rels/workbook.xml.rels' => self::workbookRels(),
+            'xl/styles.xml' => '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cellXfs><xf numFmtId="0"/><xf numFmtId="14"/></cellXfs></styleSheet>',
+            'xl/worksheets/sheet1.xml' => '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1">'.$cells.'</row></sheetData></worksheet>',
+        ], 'xlsx');
+
+        $row = self::withoutPhpErrors(static fn (): array => iterator_to_array((new XlsxReader($path, new ReadOptions))->rows())[1]);
+
+        $this->assertSame(1_000_000_000_000_000, $row[0]);
+        $this->assertSame(1e300, $row[1]);
+        $this->assertSame(INF, $row[2]);
+        $this->assertSame(-1, $row[3]);
+        $this->assertSame(2958466, $row[4]);
+        $this->assertSame(['date:9999-12-31 23:59:59', 'date:2025-01-01 12:00:00', 'date:1899-12-31 00:00:00'], self::normalize(array_slice($row, 5)));
+    }
+
     public function test_pretty_printed_sheet_with_absolute_targets(): void
     {
         $path = Fixtures::zip([

@@ -8,6 +8,8 @@ use DateTimeImmutable;
 use DateTimeZone;
 use IntrAgile\Spreadsheet\Internal\Date\SerialDate;
 use IntrAgile\Spreadsheet\Tests\Support\TestCase;
+use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 final class SerialDateTest extends TestCase
 {
@@ -46,5 +48,33 @@ final class SerialDateTest extends TestCase
 
         $local = new DateTimeImmutable('2025-01-01 12:00:00', new DateTimeZone('Europe/Budapest'));
         $this->assertSame(45658.5, SerialDate::fromDateTime($local));
+    }
+
+    /**
+     * @return iterable<string, array{float}>
+     */
+    public static function outOfRange(): iterable
+    {
+        yield 'negative' => [-0.5];
+        yield 'past 9999-12-31' => [2958466.0];
+        yield 'huge' => [1e15];
+        yield 'infinite' => [INF];
+        yield 'not a number' => [NAN];
+    }
+
+    #[DataProvider('outOfRange')]
+    public function test_serials_outside_the_calendar_are_rejected_without_warnings(float $serial): void
+    {
+        self::withoutPhpErrors(function () use ($serial): void {
+            $this->expectException(InvalidArgumentException::class);
+
+            SerialDate::toDateTime($serial);
+        });
+    }
+
+    public function test_calendar_bounds(): void
+    {
+        $this->assertSame('9999-12-31 23:59:59', SerialDate::toDateTime(2958465.99999)->format('Y-m-d H:i:s'));
+        $this->assertSame('1899-12-31', SerialDate::toDateTime(0)->format('Y-m-d'));
     }
 }
