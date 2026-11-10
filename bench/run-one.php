@@ -270,7 +270,10 @@ function strictXlsxMismatch(mixed $expected, mixed $actual): ?string
     $ok = match (true) {
         is_bool($expected) => $actual === $expected,
         $expected instanceof DateTimeInterface => $actual instanceof DateTimeInterface && $actual->format('Y-m-d H:i:s') === $expected->format('Y-m-d H:i:s'),
-        is_int($expected), is_float($expected) => (is_int($actual) || is_float($actual)) && abs($actual - $expected) <= 1e-9 * max(1.0, abs($expected)),
+        // The reader returns an int for an integral number, so only an integral float may come back as an int.
+        is_int($expected) => $actual === $expected,
+        is_float($expected) => (is_float($actual) && abs($actual - $expected) <= 1e-9 * max(1.0, abs($expected)))
+            || (is_int($actual) && (float) $actual === $expected),
         default => $actual === $expected,
     };
 

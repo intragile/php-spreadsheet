@@ -29,7 +29,7 @@ Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 | 1000000 | generator only (floor) | ok | 1/1 | 1.24 | 4.0 | 0.0 | 28.2 | 807 103 |
 | 1000000 | intragile/php-spreadsheet | ok | 1/1 | 12.31 | 4.0 | 0.0 | 29.2 | 81 241 |
 | 1000000 | spatie/simple-excel | ok | 1/1 | 63.44 | 6.0 | 2.0 | 530.6 | 15 763 |
-| 1000000 | maatwebsite/excel | OOM (OOM: Allowed memory size of 2147483648 bytes exhausted (tried to allocate 4096 bytes)) | 0/1 | n/a | n/a | n/a | n/a | n/a |
+| 1000000 | maatwebsite/excel | OOM (1/1 runs: OOM: Allowed memory size of 2147483648 bytes exhausted (tried to allocate 4096 bytes)) | 0/1 | n/a | n/a | n/a | n/a | n/a |
 
 - All libraries write the same 10 columns from the same lazy generator. The "generator only" row is the cost of producing the rows with no library involved, i.e. the floor every library pays.
 - Dates: ours writes a native date cell (`yyyy-mm-dd`). OpenSpout emits a bare serial for a date cell without a style, so for spatie the date column is built as an explicit OpenSpout `Row` whose `DateTimeCell` carries a `yyyy-mm-dd` style (`SimpleExcelWriter::addRow` accepts `Row` objects). maatwebsite has no date cell type: the column is written as a serial plus a `yyyy-mm-dd` column format (`WithColumnFormatting`). All three files therefore contain real, formatted date cells.
@@ -48,7 +48,7 @@ Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 | 1000000 | generator only (floor) | ok | 1/1 | 1.40 | 4.0 | 0.0 | 27.9 | 715 820 |
 | 1000000 | intragile/php-spreadsheet | ok | 1/1 | 14.90 | 4.0 | 0.0 | 29.0 | 67 110 |
 | 1000000 | spatie/simple-excel (partial) | ok | 1/1 | 65.04 | 6.0 | 2.0 | 534.0 | 15 374 |
-| 1000000 | maatwebsite/excel | OOM (OOM: Allowed memory size of 2147483648 bytes exhausted (tried to allocate 4096 bytes)) | 0/1 | n/a | n/a | n/a | n/a | n/a |
+| 1000000 | maatwebsite/excel | OOM (1/1 runs: OOM: Allowed memory size of 2147483648 bytes exhausted (tried to allocate 4096 bytes)) | 0/1 | n/a | n/a | n/a | n/a | n/a |
 
 - **spatie is partial**: it applies the header style (bold, fill, border) and the date format, but NOT the number formats on the two float columns and NOT the column widths, so it does less work than the other two.
 - ours: header `Style` row, `Cell::of` with a number format on columns 2 and 8, column widths for all 10 columns. maatwebsite: `WithStyles` (header row), `WithColumnFormatting` (columns B, E, H), `WithColumnWidths`. spatie builds its per-cell OpenSpout `Row` inside the timed region, as in W1.
@@ -65,7 +65,7 @@ Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 | 1000000 | generator only (floor) | ok | 1/1 | 1.25 | 4.0 | 0.0 | 28.0 | 800 641 |
 | 1000000 | intragile/php-spreadsheet | ok | 1/1 | 7.45 | 4.0 | 0.0 | 28.1 | 134 192 |
 | 1000000 | spatie/simple-excel | ok | 1/1 | 11.98 | 4.0 | 0.0 | 28.0 | 83 500 |
-| 1000000 | maatwebsite/excel | OOM (OOM: Allowed memory size of 2147483648 bytes exhausted (tried to allocate 4096 bytes)) | 0/1 | n/a | n/a | n/a | n/a | n/a |
+| 1000000 | maatwebsite/excel | OOM (1/1 runs: OOM: Allowed memory size of 2147483648 bytes exhausted (tried to allocate 4096 bytes)) | 0/1 | n/a | n/a | n/a | n/a | n/a |
 
 - The CSV forms differ per library and are verified per library: ours and maatwebsite write dates as `Y-m-d`, spatie (OpenSpout) writes `DATE_ATOM` (`2021-11-24T00:00:00+00:00`); booleans are `1`/`0` for ours and spatie and `TRUE`/`FALSE` for maatwebsite. These are the libraries' defaults, so the files are not byte-identical.
 - ours and spatie stream to the file; maatwebsite builds a PhpSpreadsheet sheet first.
@@ -79,7 +79,7 @@ Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 | 100000 | maatwebsite/excel | ok | 3/3 | 274.60 (274.33) | 112.5 (112.5) | 96.5 (96.5) | 2586.7 (2452.3) | 364 |
 | 1000000 | intragile/php-spreadsheet | ok | 1/1 | 16.77 | 6.0 | 2.0 | 29.1 | 59 641 |
 | 1000000 | spatie/simple-excel | ok | 1/1 | 90.40 | 6.0 | 2.0 | 29.9 | 11 062 |
-| 1000000 | maatwebsite/excel | timeout (timeout after 600s) | 0/1 | n/a | n/a | n/a | n/a | n/a |
+| 1000000 | maatwebsite/excel | timeout (1/1 runs: timeout after 600s) | 0/1 | n/a | n/a | n/a | n/a | n/a |
 
 - The input file is produced once by the IntrAgile writer (cell references on every cell, no `<dimension>`, inline strings). X1 checks that all three libraries read this shape with the same row count and identical values; the cached input is regenerated whenever the writer sources change.
 - Every library iterates all rows; the checksum (row count and sum of the id column) is computed in the callback and verified, so lazily-skipped parsing would be detected.
@@ -93,8 +93,8 @@ Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 | 100000 | spatie/simple-excel | ok | 3/3 | 55.80 (55.70) | 8.0 (8.0) | 4.0 (4.0) | 32.3 (32.3) | 1 792 |
 | 100000 | maatwebsite/excel | ok | 3/3 | 278.14 (276.96) | 122.6 (122.6) | 106.6 (106.6) | 2457.9 (2429.1) | 360 |
 | 1000000 | intragile/php-spreadsheet | ok | 1/1 | 25.52 | 14.0 | 8.0 | 37.0 | 39 193 |
-| 1000000 | spatie/simple-excel | timeout (timeout after 600s) | 0/1 | n/a | n/a | n/a | n/a | n/a |
-| 1000000 | maatwebsite/excel | timeout (timeout after 600s) | 0/1 | n/a | n/a | n/a | n/a | n/a |
+| 1000000 | spatie/simple-excel | timeout (1/1 runs: timeout after 600s) | 0/1 | n/a | n/a | n/a | n/a | n/a |
+| 1000000 | maatwebsite/excel | timeout (1/1 runs: timeout after 600s) | 0/1 | n/a | n/a | n/a | n/a | n/a |
 
 - Real Excel, Google Sheets and LibreOffice files keep their text in `xl/sharedStrings.xml`, while the R1 input (from the IntrAgile writer) uses inline strings only. The R1S input is written by `NeutralXlsxWriter` in `generate.php`, which uses none of the three libraries: plain XML streamed into a zip with a fully deduplicated shared-string table (with `count` and `uniqueCount`), a cell reference on every cell, dates as serials with the built-in date format 14 and booleans as `t="b"`. Same 10 columns and values as R1.
 - Every library reads every row; besides the row count and id checksum, the sampled rows (first, middle, last, every 997th) are compared cell by cell with the generator in the callback (a date may come back as a date or as its serial, numbers numerically). The expected rows are prepared before the memory baseline; the comparison of about 0.1% of the rows is inside the timed region for every library alike.
@@ -109,7 +109,7 @@ Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 | 100000 | maatwebsite/excel | ok | 3/3 | 71.02 (71.00) | 30.0 (30.0) | 14.0 (14.0) | 54.6 (54.1) | 1 408 |
 | 1000000 | intragile/php-spreadsheet | ok | 1/1 | 3.01 | 4.0 | 0.0 | 28.4 | 332 226 |
 | 1000000 | spatie/simple-excel | ok | 1/1 | 9.19 | 6.0 | 2.0 | 28.6 | 108 849 |
-| 1000000 | maatwebsite/excel | timeout (timeout after 600s) | 0/1 | n/a | n/a | n/a | n/a | n/a |
+| 1000000 | maatwebsite/excel | timeout (1/1 runs: timeout after 600s) | 0/1 | n/a | n/a | n/a | n/a | n/a |
 
 - CSV input produced by the IntrAgile writer; comma-separated, UTF-8. Delimiter and encoding are not given to any library (ours sniffs, the others use their defaults).
 - Values are compared as strings; the checksum is the sum of the id column.

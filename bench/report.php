@@ -161,9 +161,12 @@ foreach ($scenarioTitles as $id => $title) {
                 $bad = array_values(array_filter($runs, static fn (array $r): bool => ! $r['ok']));
                 $status = 'ok';
                 if ($bad !== []) {
-                    $error = (string) ($bad[0]['error'] ?? '');
-                    $kind = str_starts_with($error, 'OOM') ? 'OOM' : (str_starts_with($error, 'timeout') ? 'timeout' : 'FAILED');
-                    $status = $kind.' ('.str_replace('|', '/', substr($error, 0, $kind === 'FAILED' ? 220 : 90)).')';
+                    // Every distinct failure is listed, not only the first one.
+                    $errors = array_values(array_unique(array_map(static fn (array $r): string => (string) ($r['error'] ?? ''), $bad)));
+                    $kind = str_starts_with($errors[0], 'OOM') ? 'OOM' : (str_starts_with($errors[0], 'timeout') ? 'timeout' : 'FAILED');
+                    $limit = $kind === 'FAILED' ? 220 : 90;
+                    $details = implode('; ', array_map(static fn (string $e): string => substr($e, 0, $limit), $errors));
+                    $status = $kind.' ('.count($bad).'/'.count($runs).' runs: '.str_replace('|', '/', $details).')';
                 }
                 $partial = ($id === 'W2' && $key === 'spatie') ? ' (partial)' : '';
                 $seconds = array_map(static fn (array $r): float => (float) $r['seconds'], $good);
