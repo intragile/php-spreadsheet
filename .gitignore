@@ -2,6 +2,6 @@
 /.phpunit.cache/
 /.superpowers/
 /composer.lock
-/vendor/
-/bench/vendor/
+/vendor
+/bench/vendor
 /bench/var/
