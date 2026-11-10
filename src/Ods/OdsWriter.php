@@ -148,7 +148,7 @@ final class OdsWriter implements Writer
                 throw new SpreadsheetException(sprintf('A sheet holds at most %d rows.', self::MAX_ROWS));
             }
 
-            // Counted rows are rejected before any XML is built; other iterables are checked below.
+            // Counted rows are rejected before any XML is built; other iterables at the first extra cell.
             if (is_countable($values) && count($values) > self::MAX_COLUMNS) {
                 throw new SpreadsheetException(sprintf('Row %d has %d cells; a sheet holds at most %d columns.', $r, count($values), self::MAX_COLUMNS));
             }
@@ -162,7 +162,10 @@ final class OdsWriter implements Writer
             $column = 0;
 
             foreach ($values as $value) {
-                $column++;
+                if (++$column > self::MAX_COLUMNS) {
+                    throw new SpreadsheetException(sprintf('Row %d has more than %d cells; a sheet holds at most %d columns.', $r, self::MAX_COLUMNS, self::MAX_COLUMNS));
+                }
+
                 $style = $rowStyle;
                 $attribute = $rowAttribute;
 
@@ -214,10 +217,6 @@ final class OdsWriter implements Writer
                 } else {
                     throw new InvalidArgumentException(sprintf('Unsupported cell value of type %s in column %d of row %d.', get_debug_type($value), $column, $r));
                 }
-            }
-
-            if ($column > self::MAX_COLUMNS) {
-                throw new SpreadsheetException(sprintf('Row %d has %d cells; a sheet holds at most %d columns.', $r, $column, self::MAX_COLUMNS));
             }
 
             $used = $column - $gap;

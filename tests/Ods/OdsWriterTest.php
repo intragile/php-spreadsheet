@@ -356,6 +356,29 @@ final class OdsWriterTest extends TestCase
         })());
     }
 
+    public function test_a_generator_row_stops_at_the_first_cell_past_the_column_cap(): void
+    {
+        $pulled = 0;
+        $cells = (static function () use (&$pulled): Generator {
+            while (true) {
+                $pulled++;
+
+                yield 1;
+
+                if ($pulled > 100_000) {
+                    return;
+                }
+            }
+        })();
+
+        try {
+            (new OdsWriter(Fixtures::path('ods')))->addRow($cells);
+            $this->fail('The oversized row was accepted.');
+        } catch (SpreadsheetException) {
+            $this->assertSame(16_385, $pulled);
+        }
+    }
+
     public function test_column_widths_and_freeze(): void
     {
         $path = Fixtures::path('ods');
