@@ -3,7 +3,7 @@
 Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 
 **Read and write XLSX, ODS and CSV files with no Composer dependencies.** Rows are streamed in
-and out one at a time, so memory stays flat as the row count grows (bounded caches only; see
+and out one at a time, so memory stays flat as the row count grows (see [Memory](#memory) and
 [bench/RESULTS.md](bench/RESULTS.md)).
 
 [Magyar nyelvű leírás → README.hu.md](README.hu.md)
@@ -26,8 +26,8 @@ $reader->close();
 composer require intragile/php-spreadsheet
 ```
 
-Requires PHP 8.3+ with `ext-zip`, `ext-xmlreader` and `ext-mbstring`. There are no Composer
-dependencies.
+Requires PHP 8.3+ with `ext-zip`, `ext-xmlreader`, `ext-mbstring` and `ext-iconv`. There are no
+Composer dependencies.
 
 ## Reading
 
@@ -47,7 +47,11 @@ $reader->close();
 - Keys of `rows()` are the real 1-based row numbers; fully empty rows are skipped.
 - Cell types are preserved: numbers, booleans, text and dates (`DateTimeImmutable`, including
   dates behind custom number formats and the 1904 date system). CSV values are always strings.
-- Duplicate or blank header cells become `name_2` / `column_N`.
+- Duplicate or blank header cells become `name_2` / `column_N`. A header that is a decimal integer
+  (such as `2024`) becomes an `int` array key, as PHP always stores such keys: `$record[2024]` and
+  `$record['2024']` both work, but `array_keys()` returns `2024` as an `int`.
+- A date-formatted XLSX cell whose serial lies outside the spreadsheet calendar (below 0 or after
+  9999-12-31) is returned as the plain number instead of a date.
 - CSV delimiter and encoding are sniffed (including the Windows-1250, `;`-separated export of
   Hungarian Excel) and can be overridden:
 
@@ -62,12 +66,18 @@ $reader = Spreadsheet::read(
 );
 ```
 
+- CSV input in another encoding is decoded to UTF-8 losslessly: UTF-16 and UTF-32 (with or
+  without BOM) and single-byte code pages such as Windows-1250 or ISO-8859-2. A byte the code page
+  does not define (such as `0x81` in Windows-1250) becomes `U+FFFD` instead of failing the read;
+  other multi-byte encodings throw `InvalidArgumentException`.
+
 A missing or unreadable file throws `SpreadsheetException`; `.xls`, Numbers and PDF files throw
 `UnsupportedFormat`.
 
 ## Writing
 
-The format follows the file extension (`.xlsx`/`.xlsm`, `.ods`, `.csv`/`.txt`; `.txt` is written as CSV), or pass a `Format`.
+The format follows the file extension (`.xlsx`, `.ods`, `.csv`/`.txt`; `.txt` is written as CSV), or pass a `Format`.
+`.xlsm` can be read but not written, as the written workbook would hold no macros.
 
 ```php
 use IntrAgile\Spreadsheet\Cell;
@@ -96,18 +106,50 @@ $writer->addRow(['', 'Sum', Cell::formula('=SUM(C2:C100)')]);
 $writer->close();                                   // the file appears atomically on close
 ```
 
-- Strings are never coerced: `"00123"`, `"1e5"` and `"=1+1"` stay text. Use `Cell::formula()` for
-  formulas and `Cell::text()` to force text.
+- Strings are never coerced: `"00123"` and `"1e5"` stay text in every format, and `"=1+1"` stays
+  text in XLSX and ODS. Use `Cell::formula()` for formulas and `Cell::text()` to force text. CSV has
+  no cell types, so a spreadsheet application opening a CSV file runs `=1+1` as a formula; see
+  [CSV for Excel](#csv-for-excel) for formula escaping.
+- ODS formulas are converted to OpenFormula for plain A1 references, ranges and the `,` argument
+  separator. References to other sheets (`Sheet2!A1`), quoted names and structured references are
+  written unconverted, so such a formula may not evaluate in LibreOffice; use XLSX for them.
 - Characters that are illegal in XML are stripped instead of producing a corrupt file.
 - Sheet names are validated (length, forbidden characters, case-insensitive duplicates) before
   anything is written.
 - `Style` is immutable; equal styles share one entry in the file.
 
+### CSV for Excel
+
+`Spreadsheet::write('x.csv')` writes UTF-8 with `,`. Hungarian (and most continental) Excel
+installations expect `;` and only recognise UTF-8 with a byte-order mark, so create the writer
+directly for them:
+
+```php
+use IntrAgile\Spreadsheet\Csv\CsvWriter;
+
+$writer = new CsvWriter('/path/to/export.csv', delimiter: ';', bom: true, escapeFormulas: true);
+$writer->addRow(['Név', 'Összeg'])->addRow(['Árvíztűrő tükörfúrógép', 1234.5])->close();
+```
+
+Numbers are written with a `.` decimal point whatever the locale. A Hungarian Excel shows such a
+field as text; if it should see a number, pass a string with a decimal comma
+(`number_format($total, 2, ',', '')`). Negative numbers passed as strings are escaped by
+`escapeFormulas` too, so leave the option off for such purely numeric exports.
+
+**CSV injection.** A field that starts with `=`, `+`, `-` or `@` is run as a formula when the file
+is opened in Excel or LibreOffice, which lets user-supplied text such as
+`=HYPERLINK("https://evil.example", "click")` act inside the reader's spreadsheet. With
+`escapeFormulas: true` every string value starting with one of those characters, a tab or a
+carriage return is written with a leading `'`, which the applications hide and treat as "show as
+text". It is off by default because it changes the data (a text `-5` becomes `'-5`); turn it on for
+any export that contains user input. Values passed as `Cell::formula()` stay unescaped.
+
 ## Memory
 
-No reader or writer holds more than the current row in memory, plus bounded caches. XLSX shared
-strings are kept in RAM up to `ReadOptions::$sharedStringsInMemory` entries and spill to a
-temporary file beyond that. Writers stream to a temporary file and rename it into place on
+No reader or writer holds more than the current row in memory, plus caches of fixed size. XLSX
+shared strings are kept in RAM up to `ReadOptions::$sharedStringsInMemory` entries; the rest spill
+to a temporary file together with a fixed-width index of their offsets, so memory stays constant
+however many strings spill (only 64 KiB read-ahead blocks are held). Writers stream to a temporary file and rename it into place on
 `close()`. The test suite asserts that peak memory does not grow with the row count.
 
 ## Safety limits
@@ -119,9 +161,17 @@ Uploaded files are untrusted, so readers enforce limits (all configurable in `Re
 | `maxZipEntries` | 5,000 | archives with huge entry counts |
 | `maxUncompressedBytes` | 4 GiB | zip bombs, each entry is also capped at its declared size (at least 1 MiB) on the bytes actually decompressed |
 | `maxCompressionRatio` | 200 | entries larger than 1 MiB that expand more than 200:1 |
+| `maxCellBytes` | 1 MiB | one cell or CSV field growing without bound: ODS space runs (`text:s`), XLSX shared and inline strings, a CSV field after a stray quote |
+| `maxCells` | 100,000,000 | ODS cells produced by repeating cells and rows (`number-columns-repeated` x `number-rows-repeated`) |
+| `maxSharedStrings` | 10,000,000 | XLSX shared-string tables with millions of entries |
 
-Rows beyond 1,048,576 (the Excel and LibreOffice maximum) raise `LimitExceeded`, DOCTYPE
-declarations in XML are refused (no XXE), and unsafe zip entry names are rejected. Limit
+Fixed limits: rows beyond 1,048,576 and XLSX columns beyond XFD (16,384); CSV records with more
+than 16,384 fields; more than 4,096 sheets; more than 65,536 cell or number formats in an XLSX
+styles part; 64 MiB for the XLSX workbook, relationship and styles parts. Each raises
+`LimitExceeded` instead of exhausting memory or time. A DOCTYPE with an internal subset (where
+entities are declared) is refused, and external DTDs and entities are never loaded, so there is no
+XXE or entity expansion. Unsafe zip entry names are rejected, and an entry whose header cannot be
+read makes the archive `CorruptFile`. Limit
 violations throw `LimitExceeded`; damaged files throw `CorruptFile`; both extend
 `SpreadsheetException`.
 
