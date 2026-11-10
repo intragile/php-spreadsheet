@@ -302,6 +302,7 @@ final class CsvReaderTest extends TestCase
     public function test_concurrent_generators_are_independent_and_close_releases_all(): void
     {
         $reader = new CsvReader(Fixtures::committed('csv/utf8-bom-comma.csv'), new ReadOptions);
+        $streamsBefore = count(get_resources('stream'));
         $first = $reader->rows();
         $second = $reader->rows();
 
@@ -310,8 +311,20 @@ final class CsvReaderTest extends TestCase
         $first->next();
         $this->assertSame(['1', 'Alice'], $first->current());
         $this->assertSame(['id', 'name'], $second->current());
+        $this->assertSame($streamsBefore + 2, count(get_resources('stream')));
 
         $reader->close();
+
+        $this->assertSame($streamsBefore, count(get_resources('stream')), 'close() must release every open handle');
+
+        foreach ([$first, $second] as $generator) {
+            try {
+                $generator->next();
+                $this->fail('A generator must not keep reading after close().');
+            } catch (LogicException $e) {
+                $this->assertStringContainsString('closed', $e->getMessage());
+            }
+        }
     }
 
     public function test_empty_lines_skipped_and_row_numbers_preserved(): void
