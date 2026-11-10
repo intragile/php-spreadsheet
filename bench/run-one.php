@@ -5,7 +5,7 @@ declare(strict_types=1);
 /**
  * Runs exactly one benchmark case in this (fresh) process and prints one JSON line.
  *
- * Usage: BENCH_VAR_DIR=<dir> php -d memory_limit=2G run-one.php <none|ours|spatie|maatwebsite> <W1|W2|W3|R1|R2|X1> <rows> [--keep]
+ * Usage: BENCH_VAR_DIR=<dir> php -d memory_limit=2G run-one.php <none|ours|spatie|maatwebsite> <W1|W2|W3|R1|R1S|R2|X1> <rows> [--keep]
  */
 
 use IntrAgile\Spreadsheet\Cell;
@@ -484,8 +484,8 @@ function x1(string $lib, int $count): array
 [, $lib, $scenario, $rowsArg] = $argv + [null, null, null, null];
 $keep = in_array('--keep', $argv, true);
 
-if (! in_array($lib, ['none', 'ours', 'spatie', 'maatwebsite'], true) || ! in_array($scenario, ['W1', 'W2', 'W3', 'R1', 'R2', 'X1'], true) || ! ctype_digit((string) $rowsArg)) {
-    fwrite(STDERR, "usage: run-one.php <none|ours|spatie|maatwebsite> <W1|W2|W3|R1|R2|X1> <rows>\n");
+if (! in_array($lib, ['none', 'ours', 'spatie', 'maatwebsite'], true) || ! in_array($scenario, ['W1', 'W2', 'W3', 'R1', 'R1S', 'R2', 'X1'], true) || ! ctype_digit((string) $rowsArg)) {
+    fwrite(STDERR, "usage: run-one.php <none|ours|spatie|maatwebsite> <W1|W2|W3|R1|R1S|R2|X1> <rows>\n");
     exit(2);
 }
 $rows = (int) $rowsArg;
@@ -579,17 +579,46 @@ try {
         $result['verified_rows'] = $verified['rows'];
         $result['ok'] = true;
     } else {
-        $input = VAR_DIR."/input-$rows.$ext";
+        $input = $scenario === 'R1S' ? VAR_DIR."/input-$rows-sst.xlsx" : VAR_DIR."/input-$rows.$ext";
         if (! BenchData::inputIsCurrent($input, $rows)) {
             throw new RuntimeException("input file missing or stale: $input (run generate.php $rows)");
         }
         $count = 0;
         $sum = 0;
+        $mismatches = [];
+        $mismatched = 0;
+
+        // R1S compares every library's values with the generator on the sampled rows (first, middle,
+        // last, every 997th). The expected rows are taken before the baseline, so they are not
+        // counted against the reader; the comparison of about 0.1% of the rows stays in the timed callback.
+        $sampled = [];
+        if ($scenario === 'R1S') {
+            foreach (BenchData::rows($rows) as $i => $row) {
+                if (isSampled($i, $rows)) {
+                    $sampled[$i] = $row;
+                }
+            }
+            $baseline = memory_get_usage(true);
+            memory_reset_peak_usage();
+            $result['baseline_mb'] = round($baseline / 1048576, 1);
+        }
 
         $start = hrtime(true);
-        streamRows($lib, $input, function (array $row) use (&$count, &$sum): void {
+        streamRows($lib, $input, function (array $row) use (&$count, &$sum, &$sampled, &$mismatches, &$mismatched): void {
             $count++;
             $sum += (int) ($row[0] ?? 0);
+            if (isset($sampled[$count])) {
+                for ($c = 0; $c < 10; $c++) {
+                    $diff = cellMismatch($sampled[$count][$c], $row[$c] ?? null);
+                    if ($diff !== null) {
+                        $mismatched++;
+                        if (count($mismatches) < 8) {
+                            $mismatches[] = "row $count col ".($c + 1).": $diff";
+                        }
+                    }
+                }
+                unset($sampled[$count]);
+            }
         });
         $seconds = (hrtime(true) - $start) / 1e9;
         $snapshot();
@@ -597,6 +626,9 @@ try {
         $result['seconds'] = round($seconds, 3);
         if ($count !== $rows || $sum !== BenchData::idSum($rows)) {
             throw new RuntimeException("read $count rows (expected $rows), id sum $sum (expected ".BenchData::idSum($rows).')');
+        }
+        if ($mismatched > 0 || $sampled !== []) {
+            throw new RuntimeException("verification failed: $mismatched mismatched cells, ".count($sampled).' sampled rows not seen; '.implode('; ', $mismatches));
         }
         $result['ok'] = true;
     }

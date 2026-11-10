@@ -7,7 +7,7 @@ declare(strict_types=1);
  * kills it after --timeout seconds and appends one JSON line per case to the results file.
  *
  * Usage: php run.php [--rows=100000,1000000] [--libs=none,ours,spatie,maatwebsite]
- *                    [--scenarios=W1,W2,W3,R1,R2,X1] [--timeout=600] [--repeat=1]
+ *                    [--scenarios=W1,W2,W3,R1,R1S,R2,X1] [--timeout=600] [--repeat=1]
  *                    [--var-dir=<path>] [--out=results.json]
  *
  * With --repeat=N every case runs N times and the library order is rotated on each repetition
@@ -19,7 +19,7 @@ date_default_timezone_set('UTC');
 $options = [
     'rows' => '100000,1000000',
     'libs' => 'none,ours,spatie,maatwebsite',
-    'scenarios' => 'W1,W2,W3,R1,R2,X1',
+    'scenarios' => 'W1,W2,W3,R1,R1S,R2,X1',
     'timeout' => '600',
     'repeat' => '1',
     'var-dir' => __DIR__.'/var',
@@ -162,7 +162,7 @@ echo '['.stamp().'] '.$total.' cases, repeat '.$repeat.', timeout '.$timeout."s,
 foreach ($cases as $index => [$lib, $scenario, $rows, $rep]) {
     $label = sprintf('(%d/%d) %s %s rows=%d run=%d/%d', $index + 1, $total, $lib, $scenario, $rows, $rep, $scenario === 'X1' ? 1 : $repeat);
 
-    if (in_array($scenario, ['R1', 'R2'], true) && ! isset($prepared[$rows])) {
+    if (in_array($scenario, ['R1', 'R1S', 'R2'], true) && ! isset($prepared[$rows])) {
         echo '['.stamp()."] preparing input files for $rows rows\n";
         $gen = runLimited([...$php, __DIR__.'/generate.php', (string) $rows], 3600, $env);
         if ($gen['exit'] !== 0) {

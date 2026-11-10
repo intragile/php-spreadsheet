@@ -7,7 +7,9 @@ declare(strict_types=1);
  *
  * Library usage: BenchData::rows($n) yields the same rows in every process (isolated Mt19937 seeded with 20261109).
  * CLI usage:     php generate.php <rows> [<rows>...]   builds <var-dir>/input-<rows>.{xlsx,csv}
- *                with the IntrAgile writer (the file under test is never produced by a competitor).
+ *                with the IntrAgile writer (the file under test is never produced by a competitor), and
+ *                <var-dir>/input-<rows>-sst.xlsx with NeutralXlsxWriter (shared strings, as Excel,
+ *                Google Sheets and LibreOffice write them; none of the benchmarked libraries is involved).
  */
 
 use IntrAgile\Spreadsheet\Spreadsheet;
@@ -102,6 +104,129 @@ final class BenchData
     }
 }
 
+/**
+ * Writes the benchmark rows as an Excel-shaped workbook without any spreadsheet library: every
+ * string goes to a fully deduplicated shared-string table (with count and uniqueCount), every cell
+ * has a reference, dates are serials with the built-in date format 14, booleans are t="b".
+ * Sheet and string table are streamed to temporary files, so any row count takes constant memory
+ * apart from the deduplication map.
+ */
+final class NeutralXlsxWriter
+{
+    private const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+
+    private const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+    private const PKG = 'http://schemas.openxmlformats.org/package/2006/relationships';
+
+    /** @param iterable<int, array<int, int|float|string|bool|DateTimeInterface|null>> $rows */
+    public static function write(string $path, iterable $rows): void
+    {
+        $sheetPath = $path.'.sheet.tmp';
+        $itemsPath = $path.'.items.tmp';
+        $stringsPath = $path.'.strings.tmp';
+        $sheet = fopen($sheetPath, 'wb');
+        $items = fopen($itemsPath, 'wb');
+        /** @var array<string, int> $indexes */
+        $indexes = [];
+        $references = 0;
+        $buffer = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            .'<worksheet xmlns="'.self::MAIN.'"><sheetData>';
+        $itemBuffer = '';
+        $r = 0;
+
+        foreach ($rows as $row) {
+            $r++;
+            $buffer .= '<row r="'.$r.'">';
+            foreach ($row as $column => $value) {
+                $ref = chr(65 + $column).$r;
+                if ($value === null) {
+                    continue;
+                }
+                if (is_string($value)) {
+                    $references++;
+                    if (! isset($indexes[$value])) {
+                        $indexes[$value] = count($indexes);
+                        $itemBuffer .= '<si><t>'.htmlspecialchars($value, ENT_XML1 | ENT_QUOTES, 'UTF-8').'</t></si>';
+                    }
+                    $buffer .= '<c r="'.$ref.'" t="s"><v>'.$indexes[$value].'</v></c>';
+                } elseif (is_bool($value)) {
+                    $buffer .= '<c r="'.$ref.'" t="b"><v>'.($value ? '1' : '0').'</v></c>';
+                } elseif ($value instanceof DateTimeInterface) {
+                    $buffer .= '<c r="'.$ref.'" s="1"><v>'.var_export(BenchData::serial($value), true).'</v></c>';
+                } else {
+                    $buffer .= '<c r="'.$ref.'"><v>'.var_export($value, true).'</v></c>';
+                }
+            }
+            $buffer .= '</row>';
+            if (strlen($buffer) > 1048576) {
+                fwrite($sheet, $buffer);
+                $buffer = '';
+            }
+            if (strlen($itemBuffer) > 1048576) {
+                fwrite($items, $itemBuffer);
+                $itemBuffer = '';
+            }
+        }
+        fwrite($sheet, $buffer.'</sheetData></worksheet>');
+        fwrite($items, $itemBuffer);
+        fclose($sheet);
+        fclose($items);
+
+        // count and uniqueCount are known only now, so the header goes in front of the streamed items.
+        $strings = fopen($stringsPath, 'wb');
+        fwrite($strings, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            .'<sst xmlns="'.self::MAIN.'" count="'.$references.'" uniqueCount="'.count($indexes).'">');
+        $source = fopen($itemsPath, 'rb');
+        stream_copy_to_stream($source, $strings);
+        fclose($source);
+        fwrite($strings, '</sst>');
+        fclose($strings);
+        $indexes = [];
+
+        @unlink($path);
+        $zip = new ZipArchive;
+        if ($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+            throw new RuntimeException("cannot create $path");
+        }
+        $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            .'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            .'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            .'<Default Extension="xml" ContentType="application/xml"/>'
+            .'<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            .'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            .'<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            .'<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'
+            .'</Types>');
+        $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            .'<Relationships xmlns="'.self::PKG.'"><Relationship Id="rId1" Type="'.self::REL.'/officeDocument" Target="xl/workbook.xml"/></Relationships>');
+        $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            .'<workbook xmlns="'.self::MAIN.'" xmlns:r="'.self::REL.'"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>');
+        $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            .'<Relationships xmlns="'.self::PKG.'">'
+            .'<Relationship Id="rId1" Type="'.self::REL.'/worksheet" Target="worksheets/sheet1.xml"/>'
+            .'<Relationship Id="rId2" Type="'.self::REL.'/styles" Target="styles.xml"/>'
+            .'<Relationship Id="rId3" Type="'.self::REL.'/sharedStrings" Target="sharedStrings.xml"/>'
+            .'</Relationships>');
+        $zip->addFromString('xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            .'<styleSheet xmlns="'.self::MAIN.'"><numFmts count="0"/>'
+            .'<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>'
+            .'<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+            .'<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+            .'<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+            .'<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+            .'<xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>');
+        $zip->addFile($sheetPath, 'xl/worksheets/sheet1.xml');
+        $zip->addFile($stringsPath, 'xl/sharedStrings.xml');
+        if (! $zip->close()) {
+            throw new RuntimeException("cannot write $path");
+        }
+        @unlink($sheetPath);
+        @unlink($itemsPath);
+        @unlink($stringsPath);
+    }
+}
+
 if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
     $var = BenchData::varDir();
     is_dir($var) || mkdir($var, 0777, true);
@@ -137,6 +262,14 @@ if (PHP_SAPI === 'cli' && isset($argv[0]) && realpath($argv[0]) === __FILE__) {
 
             file_put_contents($meta, json_encode(['rows' => $rows, 'bytes' => filesize($path), 'fingerprint' => BenchData::fingerprint()]));
             echo "generated $path (".round(filesize($path) / 1048576, 1)." MB)\n";
+        }
+
+        $path = "$var/input-$rows-sst.xlsx";
+        if (! BenchData::inputIsCurrent($path, $rows)) {
+            @unlink("$path.meta.json");
+            NeutralXlsxWriter::write($path, BenchData::rows($rows));
+            file_put_contents("$path.meta.json", json_encode(['rows' => $rows, 'bytes' => filesize($path), 'fingerprint' => BenchData::fingerprint()]));
+            echo "generated $path (".round(filesize($path) / 1048576, 1)." MB, shared strings)\n";
         }
     }
 }
