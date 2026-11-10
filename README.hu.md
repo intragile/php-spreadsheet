@@ -31,8 +31,8 @@ composer require intragile/php-spreadsheet
 ```
 
 PHP 8.3+ szükséges az `ext-zip`, `ext-xmlreader`, `ext-mbstring` és `ext-iconv` bővítményekkel.
-Composer-függőség nincs. A régi `.xls` fájlok olvasásához az ajánlott `phpoffice/phpspreadsheet` csomag kell
-(lásd: [Régi XLS-fájlok olvasása](#régi-xls-fájlok-olvasása)).
+Composer-függőség nincs. A régi `.xls` fájlok olvasásához az ajánlott `phpoffice/phpspreadsheet` csomag
+5.10-es vagy újabb változata kell (lásd: [Régi XLS-fájlok olvasása](#régi-xls-fájlok-olvasása)).
 
 ## Olvasás
 
@@ -103,7 +103,7 @@ bájt nélküli rövid bináris fájl nem különböztethető meg a szövegtől,
 
 A bináris `.xls` munkafüzeteket a tartalmuk alapján ismeri fel a könyvtár (`Format::Xls`), és az opcionális
 [phpoffice/phpspreadsheet](https://github.com/PHPOffice/PhpSpreadsheet) csomaggal olvassa
-(`composer require phpoffice/phpspreadsheet`; nélküle az XLS olvasása `UnsupportedFormat` kivételt ad). A sorok,
+(`composer require "phpoffice/phpspreadsheet:^5.10"`; nélküle az XLS olvasása `UnsupportedFormat` kivételt ad). A sorok,
 a munkalap-kiválasztás, a `rowsWithHeader()` és az értéktípusok a többi formátummal egyezően működnek, az 1904-es
 dátumrendszert is beleértve. Ezzel szemben az **XLS-olvasás nem folyamatos**: a teljes munkafüzet a memóriába
 kerül. A munkalapok méretét előbb olvassa ki, és az a munkafüzet, amelynek lapjain több cella van a `maxCells`

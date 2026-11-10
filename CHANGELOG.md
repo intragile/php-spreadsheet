@@ -15,7 +15,7 @@ First stable release: streaming XLSX, ODS and CSV reading and writing with bound
 ### Added
 
 - `FileInspector::inspect()` (header row detection, sheet and sample overview) and `FileInspector::countCells()` (early-stopping cell count pre-check).
-- Optional XLS reading through phpoffice/phpspreadsheet (`Format::Xls`); not streaming, cell limit checked before loading.
+- Optional XLS reading through phpoffice/phpspreadsheet 5.10 or later (`Format::Xls`); not streaming, cell limit checked before loading.
 - Package scaffold with a hardened zip and XML reading layer.
 - `Spreadsheet::read()` and `Spreadsheet::write()` entry points with content-based format
   detection and extension-based writer selection.

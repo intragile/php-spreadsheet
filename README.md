@@ -31,8 +31,8 @@ composer require intragile/php-spreadsheet
 ```
 
 Requires PHP 8.3+ with `ext-zip`, `ext-xmlreader`, `ext-mbstring` and `ext-iconv`. There are no
-Composer dependencies. Reading legacy `.xls` files needs the suggested `phpoffice/phpspreadsheet` package (see
-[Reading legacy XLS](#reading-legacy-xls)).
+Composer dependencies. Reading legacy `.xls` files needs the suggested `phpoffice/phpspreadsheet`
+package, 5.10 or later (see [Reading legacy XLS](#reading-legacy-xls)).
 
 ## Reading
 
@@ -98,7 +98,7 @@ apart from text and is read as CSV.
 ### Reading legacy XLS
 
 Binary `.xls` workbooks are detected from their content (`Format::Xls`) and read through the optional
-[phpoffice/phpspreadsheet](https://github.com/PHPOffice/PhpSpreadsheet) package (`composer require phpoffice/phpspreadsheet`;
+[phpoffice/phpspreadsheet](https://github.com/PHPOffice/PhpSpreadsheet) package (`composer require "phpoffice/phpspreadsheet:^5.10"`;
 without it, reading an XLS file throws `UnsupportedFormat`). Rows, sheet selection, `rowsWithHeader()` and
 the value types work as for the other formats, including the 1904 date system. Unlike them, **XLS reading is
 not streaming**: the whole workbook is loaded into memory. The sheet dimensions are read first, and a
