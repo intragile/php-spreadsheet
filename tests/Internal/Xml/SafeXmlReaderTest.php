@@ -309,6 +309,28 @@ final class SafeXmlReaderTest extends TestCase
         $bad->read();
     }
 
+    public function test_closing_a_reader_keeps_the_errors_another_open_reader_has_not_collected(): void
+    {
+        $other = SafeXmlReader::fromString('<a><b>1</b></a>');
+        $other->read();
+        $bad = SafeXmlReader::fromString('<a>'.str_repeat('<b>x</b>', 20_000).'<b>');
+        $raw = $bad->raw();
+        $bad->read();
+
+        while ($raw->read()) {
+            // Walk until the fatal error stops the raw reader, leaving it uncollected.
+        }
+
+        // Another reader closes while the fatal error is still pending.
+        $other->close();
+
+        $this->assertTrue($bad->collectErrors());
+
+        $this->expectException(MalformedXml::class);
+
+        $bad->read();
+    }
+
     public function test_internal_error_state_is_restored(): void
     {
         $before = libxml_use_internal_errors(false);

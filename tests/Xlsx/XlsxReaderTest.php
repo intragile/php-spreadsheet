@@ -639,6 +639,32 @@ final class XlsxReaderTest extends TestCase
         }
     }
 
+    public function test_sheet_failing_mid_row_leaves_no_error_behind_for_a_suspended_one(): void
+    {
+        $good = new XlsxReader(Fixtures::committed('xlsx/excel-mixed.xlsx'), new ReadOptions);
+        // libxml parses ahead and records the truncation before the bad reference is reached.
+        $bad = new XlsxReader(self::singleSheet('<row r="1"><c r="A1"><v>1</v></c><c r="1A"><v>2</v></c></row><row r="2"><c', false), new ReadOptions);
+        $expected = array_map(self::normalize(...), $this->read('excel-mixed.xlsx'));
+
+        $first = $good->rows();
+        $collected = [$first->key() => self::normalize($first->current())];
+
+        try {
+            iterator_to_array($bad->rows());
+            $this->fail('A bad cell reference must throw.');
+        } catch (CorruptFile $exception) {
+            $this->assertSame('The cell reference "1A" is not valid.', $exception->getMessage());
+        }
+
+        for ($first->next(); $first->valid(); $first->next()) {
+            $collected[$first->key()] = self::normalize($first->current());
+        }
+
+        $this->assertSame($expected, $collected);
+        $good->close();
+        $bad->close();
+    }
+
     private static function truncatedSheet(int $rows): string
     {
         $data = '';

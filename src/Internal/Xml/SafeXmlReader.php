@@ -204,7 +204,6 @@ final class SafeXmlReader
 
         $this->closed = true;
         @$this->reader->close();
-        libxml_clear_errors();
         self::releaseErrorMode();
     }
 
@@ -328,9 +327,15 @@ final class SafeXmlReader
         self::$openReaders++;
     }
 
+    /**
+     * libxml keeps one error list for the whole process, so errors left in it may belong to
+     * another open reader that has not collected them yet. They are only dropped once the last
+     * reader closes, before the previous error mode is restored.
+     */
     private static function releaseErrorMode(): void
     {
         if (self::$openReaders > 0 && --self::$openReaders === 0) {
+            libxml_clear_errors();
             libxml_use_internal_errors(self::$savedErrorMode);
         }
     }
