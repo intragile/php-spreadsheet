@@ -258,7 +258,7 @@ final class XlsxWriterTest extends TestCase
         $sheet = self::part($path, 'xl/worksheets/sheet1.xml');
 
         $this->assertStringContainsString('<col min="1" max="1" width="30" customWidth="1"/>', $sheet);
-        $this->assertStringContainsString('<pane ySplit="1" topLeftCell="A2" state="frozen"/>', $sheet);
+        $this->assertStringContainsString('<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/>', $sheet);
         $this->assertStringContainsString('<autoFilter ref="A1:C3"/>', $sheet);
         $this->assertLessThan(strpos($sheet, '<sheetData>'), strpos($sheet, '<cols>'));
         $this->assertGreaterThan(strpos($sheet, '</sheetData>'), strpos($sheet, '<autoFilter'));

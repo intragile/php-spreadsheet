@@ -310,7 +310,10 @@ final class XlsxWriter implements Writer
 
         $view = '<sheetView workbookViewId="0"'.(count($this->sheets) === 1 ? ' tabSelected="1"' : '');
         $freeze = $options->freezeRows ?? 0;
-        $view .= $freeze > 0 ? '><pane ySplit="'.$freeze.'" topLeftCell="A'.($freeze + 1).'" state="frozen"/></sheetView>' : '/>';
+        $view .= $freeze > 0
+            ? '><pane ySplit="'.$freeze.'" topLeftCell="A'.($freeze + 1).'" activePane="bottomLeft" state="frozen"/>'
+                .'<selection pane="bottomLeft" activeCell="A'.($freeze + 1).'" sqref="A'.($freeze + 1).'"/></sheetView>'
+            : '/>';
 
         $this->buffer = self::XML_DECLARATION
             .'<worksheet xmlns="'.self::NS_MAIN.'" xmlns:r="'.self::NS_RELATIONSHIPS.'">'

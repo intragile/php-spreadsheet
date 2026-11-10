@@ -56,8 +56,9 @@ final class OdsWriterTest extends TestCase
         $this->assertEquals(new DateTimeImmutable('2025-01-31 13:45:00'), $rows[1][6]);
 
         $content = self::part($path, 'content.xml');
-        $this->assertStringContainsString('office:value-type="float" office:value="3.14"', $content);
-        $this->assertStringContainsString('office:value-type="boolean" office:boolean-value="true"', $content);
+        $this->assertStringContainsString('office:value-type="float" office:value="42"><text:p>42</text:p></table:table-cell>', $content);
+        $this->assertStringContainsString('office:value-type="float" office:value="3.14"><text:p>3.14</text:p></table:table-cell>', $content);
+        $this->assertStringContainsString('office:value-type="boolean" office:boolean-value="true"><text:p>TRUE</text:p></table:table-cell>', $content);
         $this->assertStringContainsString('office:date-value="2025-01-31"', $content);
         $this->assertStringContainsString('office:date-value="2025-01-31T13:45:00"', $content);
         $this->assertStringContainsString('table:formula="of:=[.A1]*2"', $content);

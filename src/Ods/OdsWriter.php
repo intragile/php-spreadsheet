@@ -191,12 +191,12 @@ final class OdsWriter implements Writer
 
                 if (is_string($value)) {
                     $xml .= '<table:table-cell'.$attribute.' office:value-type="string">'.self::paragraphs($value).'</table:table-cell>';
-                } elseif (is_int($value)) {
-                    $xml .= '<table:table-cell'.$attribute.' office:value-type="float" office:value="'.$value.'"/>';
-                } elseif (is_float($value)) {
-                    $xml .= '<table:table-cell'.$attribute.' office:value-type="float" office:value="'.self::number($value).'"/>';
+                } elseif (is_int($value) || is_float($value)) {
+                    // The text:p is the display copy that readers ignoring office:value show.
+                    $number = is_int($value) ? (string) $value : self::number($value);
+                    $xml .= '<table:table-cell'.$attribute.' office:value-type="float" office:value="'.$number.'"><text:p>'.$number.'</text:p></table:table-cell>';
                 } elseif (is_bool($value)) {
-                    $xml .= '<table:table-cell'.$attribute.' office:value-type="boolean" office:boolean-value="'.($value ? 'true' : 'false').'"/>';
+                    $xml .= '<table:table-cell'.$attribute.' office:value-type="boolean" office:boolean-value="'.($value ? 'true' : 'false').'"><text:p>'.($value ? 'TRUE' : 'FALSE').'</text:p></table:table-cell>';
                 } elseif ($value instanceof DateTimeInterface) {
                     $xml .= $this->date($value, $style);
                 } else {
