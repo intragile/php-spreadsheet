@@ -9,6 +9,7 @@ use IntrAgile\Spreadsheet\Cell;
 use IntrAgile\Spreadsheet\Contracts\Writer;
 use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
 use IntrAgile\Spreadsheet\Internal\Date\SerialDate;
+use IntrAgile\Spreadsheet\Internal\NumberText;
 use IntrAgile\Spreadsheet\Internal\SheetName;
 use IntrAgile\Spreadsheet\Internal\TempFile;
 use IntrAgile\Spreadsheet\Internal\Xml\XmlEscaper;
@@ -166,7 +167,7 @@ final class XlsxWriter implements Writer
                 } elseif (is_int($value)) {
                     $xml .= $c.'><v>'.$value.'</v></c>';
                 } elseif (is_float($value)) {
-                    $xml .= $c.'><v>'.self::number($value).'</v></c>';
+                    $xml .= $c.'><v>'.NumberText::fromFloat($value).'</v></c>';
                 } elseif ($value === null) {
                     $xml .= $c.'/>';
                 } elseif (is_bool($value)) {
@@ -337,7 +338,7 @@ final class XlsxWriter implements Writer
             $this->buffer .= '<cols>';
 
             foreach ($widths as $column => $width) {
-                $this->buffer .= '<col min="'.$column.'" max="'.$column.'" width="'.self::number((float) $width).'" customWidth="1"/>';
+                $this->buffer .= '<col min="'.$column.'" max="'.$column.'" width="'.NumberText::fromFloat((float) $width).'" customWidth="1"/>';
             }
 
             $this->buffer .= '</cols>';
@@ -400,7 +401,7 @@ final class XlsxWriter implements Writer
         $serial = SerialDate::fromDateTime($value);
         $id = $this->styles->idFor($style, true, $serial !== floor($serial));
 
-        return '<c'.$at.' s="'.$id.'"><v>'.self::number($serial).'</v></c>';
+        return '<c'.$at.' s="'.$id.'"><v>'.NumberText::fromFloat($serial).'</v></c>';
     }
 
     /**
@@ -432,7 +433,7 @@ final class XlsxWriter implements Writer
             is_string($value) => $c.' t="inlineStr"><is>'.self::text($value).'</is></c>',
             is_bool($value) => $c.' t="b"><v>'.($value ? '1' : '0').'</v></c>',
             is_int($value) => $c.'><v>'.$value.'</v></c>',
-            default => $c.'><v>'.self::number($value).'</v></c>',
+            default => $c.'><v>'.NumberText::fromFloat($value).'</v></c>',
         };
     }
 
@@ -455,20 +456,6 @@ final class XlsxWriter implements Writer
         }
 
         return '<t>'.$value.'</t>';
-    }
-
-    /**
-     * Shortest representation that round-trips, independent of the locale.
-     */
-    private static function number(float $value): string
-    {
-        if (! is_finite($value)) {
-            throw new InvalidArgumentException('Spreadsheet numbers must be finite; got '.var_export($value, true).'.');
-        }
-
-        $text = var_export($value, true);
-
-        return str_ends_with($text, '.0') ? substr($text, 0, -2) : $text;
     }
 
     private static function validateOptions(?SheetOptions $options): void

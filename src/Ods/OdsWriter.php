@@ -8,6 +8,7 @@ use DateTimeInterface;
 use IntrAgile\Spreadsheet\Cell;
 use IntrAgile\Spreadsheet\Contracts\Writer;
 use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
+use IntrAgile\Spreadsheet\Internal\NumberText;
 use IntrAgile\Spreadsheet\Internal\SheetName;
 use IntrAgile\Spreadsheet\Internal\TempFile;
 use IntrAgile\Spreadsheet\Internal\Xml\XmlEscaper;
@@ -196,7 +197,7 @@ final class OdsWriter implements Writer
                     $xml .= '<table:table-cell'.$attribute.' office:value-type="string">'.self::paragraphs($value).'</table:table-cell>';
                 } elseif (is_int($value) || is_float($value)) {
                     // The text:p is the display copy that readers ignoring office:value show.
-                    $number = is_int($value) ? (string) $value : self::number($value);
+                    $number = is_int($value) ? (string) $value : NumberText::fromFloat($value);
                     $xml .= '<table:table-cell'.$attribute.' office:value-type="float" office:value="'.$number.'"><text:p>'.$number.'</text:p></table:table-cell>';
                 } elseif (is_bool($value)) {
                     $xml .= '<table:table-cell'.$attribute.' office:value-type="boolean" office:boolean-value="'.($value ? 'true' : 'false').'"><text:p>'.($value ? 'TRUE' : 'FALSE').'</text:p></table:table-cell>';
@@ -668,20 +669,6 @@ final class OdsWriter implements Writer
         }
 
         return XmlEscaper::text(implode('', $segments));
-    }
-
-    /**
-     * Shortest representation that round-trips, independent of the locale.
-     */
-    private static function number(float $value): string
-    {
-        if (! is_finite($value)) {
-            throw new InvalidArgumentException('Spreadsheet numbers must be finite; got '.var_export($value, true).'.');
-        }
-
-        $text = var_export($value, true);
-
-        return str_ends_with($text, '.0') ? substr($text, 0, -2) : $text;
     }
 
     private static function columnLetters(int $index): string

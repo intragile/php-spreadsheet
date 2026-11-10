@@ -691,6 +691,27 @@ final class XlsxWriterTest extends TestCase
         $this->assertFileDoesNotExist($path);
     }
 
+    public function test_float_text_is_shortest_round_trip_regardless_of_ini_precision(): void
+    {
+        $path = Fixtures::path('xlsx');
+        $serialize = ini_get('serialize_precision');
+        $precision = ini_get('precision');
+        ini_set('serialize_precision', '5');
+        ini_set('precision', '3');
+
+        try {
+            (new XlsxWriter($path))->addRow([-0.0, 1.0E+25, 1e-7, 0.1 + 0.2, PHP_FLOAT_MAX, 5e-324, 1e16, 2.5])->close();
+        } finally {
+            ini_set('serialize_precision', (string) $serialize);
+            ini_set('precision', (string) $precision);
+        }
+
+        preg_match_all('#<v>([^<]*)</v>#', self::part($path, 'xl/worksheets/sheet1.xml'), $m);
+        $this->assertSame(['0', '1.0E+25', '1.0E-7', '0.30000000000000004', '1.7976931348623157E+308', '5.0E-324', '10000000000000000', '2.5'], $m[1]);
+        // A negative zero reads back as zero; everything else round-trips bit for bit.
+        $this->assertSame([0, 1.0E+25, 1e-7, 0.1 + 0.2, PHP_FLOAT_MAX, 5e-324, 1e16, 2.5], self::readRows($path)[1]);
+    }
+
     private function writeRows(int $count): int
     {
         $path = Fixtures::path('xlsx');
