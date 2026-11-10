@@ -12,13 +12,6 @@ use XMLReader;
 
 final class SafeXmlReaderTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        if (! extension_loaded('xmlreader')) {
-            $this->markTestSkipped('ext-xmlreader is required.');
-        }
-    }
-
     private static function drainText(SafeXmlReader $reader): string
     {
         $text = '';
