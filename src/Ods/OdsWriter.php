@@ -66,7 +66,8 @@ final class OdsWriter implements Writer
         .'xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" '
         .'xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" '
         .'xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0" '
-        .'xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2"';
+        .'xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2" '
+        .'xmlns:ooo="http://openoffice.org/2004/office"';
 
     private readonly OdsStyleRegistry $styles;
 

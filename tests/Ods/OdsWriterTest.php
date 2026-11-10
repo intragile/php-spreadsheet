@@ -878,6 +878,19 @@ final class OdsWriterTest extends TestCase
         $this->assertSame('urn:oasis:names:tc:opendocument:xmlns:of:1.2', $document->documentElement->lookupNamespaceURI('of'));
     }
 
+    public function test_settings_namespace_prefix_is_declared(): void
+    {
+        // LibreOffice resolves "ooo:view-settings" as a qualified name and ignores the view
+        // settings, frozen rows included, when the "ooo" prefix is undeclared.
+        $path = Fixtures::path('ods');
+        (new OdsWriter($path))->sheet('Data', new SheetOptions(freezeRows: 1))->addRow(['a'])->close();
+
+        $document = new DOMDocument;
+        $document->loadXML(self::part($path, 'settings.xml'));
+        $this->assertNotNull($document->documentElement);
+        $this->assertSame('http://openoffice.org/2004/office', $document->documentElement->lookupNamespaceURI('ooo'));
+    }
+
     public function test_memory_flat(): void
     {
         $small = $this->writeRows(30_000);
