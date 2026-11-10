@@ -414,6 +414,8 @@ final class OdsWriterTest extends TestCase
         $this->assertInstanceOf(DOMElement::class, $range);
         $this->assertSame("'R&D'.A1:'R&D'.C3", $range->getAttributeNS(self::NS['table'], 'target-range-address'));
         $this->assertSame('true', $range->getAttributeNS(self::NS['table'], 'display-filter-buttons'));
+        // Excel ignores the filter of a named range; its own ODS output leaves the range unnamed.
+        $this->assertFalse($range->hasAttributeNS(self::NS['table'], 'name'));
     }
 
     public function test_multiple_sheets(): void
@@ -839,6 +841,18 @@ final class OdsWriterTest extends TestCase
 
         $content = self::xpath(self::part($path, 'content.xml'));
         $this->assertSame($expected, self::first($content, '//table:table-cell')->getAttributeNS(self::NS['table'], 'formula'));
+    }
+
+    public function test_formula_namespace_prefix_is_declared(): void
+    {
+        // The "of:" prefix of a formula is a namespace prefix; Excel drops formulas whose prefix is undeclared.
+        $path = Fixtures::path('ods');
+        (new OdsWriter($path))->addRow([Cell::formula('=1+1')])->close();
+
+        $document = new DOMDocument;
+        $document->loadXML(self::part($path, 'content.xml'));
+        $this->assertNotNull($document->documentElement);
+        $this->assertSame('urn:oasis:names:tc:opendocument:xmlns:of:1.2', $document->documentElement->lookupNamespaceURI('of'));
     }
 
     public function test_memory_flat(): void

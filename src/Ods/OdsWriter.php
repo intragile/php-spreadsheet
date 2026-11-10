@@ -65,7 +65,8 @@ final class OdsWriter implements Writer
         .'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" '
         .'xmlns:number="urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0" '
         .'xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0" '
-        .'xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0"';
+        .'xmlns:config="urn:oasis:names:tc:opendocument:xmlns:config:1.0" '
+        .'xmlns:of="urn:oasis:names:tc:opendocument:xmlns:of:1.2"';
 
     private readonly OdsStyleRegistry $styles;
 
@@ -386,7 +387,7 @@ final class OdsWriter implements Writer
                     $quoted = "'".str_replace("'", "''", $sheet['name'])."'";
                     $last = self::columnLetters($sheet['firstRowWidth'] - 1);
                     $range = $quoted.'.A1:'.$quoted.'.'.$last.$sheet['rows'];
-                    $ranges .= '<table:database-range table:name="__Anonymous_Sheet_DB__'.$index.'" table:target-range-address="'
+                    $ranges .= '<table:database-range table:target-range-address="'
                         .XmlEscaper::text($range).'" table:display-filter-buttons="true"/>';
                 }
             }
