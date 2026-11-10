@@ -60,4 +60,9 @@ final class ReadOptionsTest extends TestCase
 
         $create();
     }
+
+    public function test_options_cannot_change_after_validation(): void
+    {
+        $this->assertTrue((new \ReflectionClass(ReadOptions::class))->isReadOnly());
+    }
 }

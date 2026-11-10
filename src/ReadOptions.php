@@ -9,7 +9,7 @@ use InvalidArgumentException;
 /**
  * Tuning and safety limits for readers.
  */
-final class ReadOptions
+final readonly class ReadOptions
 {
     /**
      * @param  string|null  $csvDelimiter  CSV field delimiter; null detects it from the file.
