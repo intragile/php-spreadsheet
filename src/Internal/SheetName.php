@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace IntrAgile\Spreadsheet\Internal;
 
+use IntrAgile\Spreadsheet\Internal\Xml\XmlEscaper;
 use InvalidArgumentException;
 
 /**
@@ -29,6 +30,7 @@ final class SheetName
             mb_strlen($name, 'UTF-8') > self::MAX_LENGTH => 'it is longer than '.self::MAX_LENGTH.' characters',
             strpbrk($name, '[]:*?/\\') !== false => 'it contains one of [ ] : * ? / \\',
             preg_match('/[\x00-\x1F]/', $name) === 1 => 'it contains a control character',
+            ! XmlEscaper::isLegal($name) => 'it contains a character the workbook cannot hold in XML (such as U+FFFE or U+FFFF)',
             $name[0] === "'" || $name[-1] === "'" => 'it starts or ends with an apostrophe',
             isset($taken[mb_strtolower($name, 'UTF-8')]) => 'a sheet with this name already exists (names ignore case)',
             default => null,

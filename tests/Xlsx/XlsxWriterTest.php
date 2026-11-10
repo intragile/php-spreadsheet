@@ -334,6 +334,8 @@ final class XlsxWriterTest extends TestCase
         yield 'empty' => [[''], '""'];
         yield 'apostrophe edge' => [["'quoted'"], "'quoted'"];
         yield 'control char' => [["a\x01b"], 'a'];
+        yield 'xml-illegal U+FFFE' => [["a\u{FFFE}b"], 'cannot hold in XML'];
+        yield 'xml-illegal U+FFFF' => [["\u{FFFF}"], 'cannot hold in XML'];
         yield 'duplicate ignoring case' => [['Sheet1', 'sheet1'], 'sheet1'];
         yield 'duplicate ignoring accent case' => [['Árvíz', 'árvíz'], 'árvíz'];
     }
