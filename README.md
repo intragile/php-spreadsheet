@@ -144,9 +144,15 @@ field as text; if it should see a number, pass a string with a decimal comma
 is opened in Excel or LibreOffice, which lets user-supplied text such as
 `=HYPERLINK("https://evil.example", "click")` act inside the reader's spreadsheet. With
 `escapeFormulas: true` every string value starting with one of those characters, a tab or a
-carriage return is written with a leading `'`, which the applications hide and treat as "show as
-text". It is off by default because it changes the data (a text `-5` becomes `'-5`); turn it on for
-any export that contains user input. Values passed as `Cell::formula()` stay unescaped.
+carriage return is written with a leading `'`, so it is shown as text instead of being run. The
+apostrophe stays visible: Excel hides a leading `'` only when it is typed into a cell, not when it
+comes from a CSV file (checked with Excel for Mac 16). It is off by default because it changes the
+data (a text `-5` becomes `'-5`); turn it on for any export that contains user input. Values passed
+as `Cell::formula()` stay unescaped.
+
+Excel also converts CSV fields that look like numbers or dates: `00123` becomes `123`, `1e5` becomes
+`1,00E+05` and `2026-01-15` becomes a date. CSV cannot prevent this; write XLSX when such text must
+survive.
 
 ## Memory
 

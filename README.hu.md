@@ -148,10 +148,15 @@ semlegesíti, ezért tisztán számadatos exportnál hagyjuk kikapcsolva.
 képletként futtatja, így a felhasználótól származó szöveg, például
 `=HYPERLINK("https://evil.example", "kattints")`, működésbe léphet az olvasó táblázatában. Az
 `escapeFormulas: true` beállítással minden ilyen karakterrel, tabulátorral vagy kocsivissza
-karakterrel kezdődő szöveges érték elé `'` kerül, amelyet a táblázatkezelők elrejtenek, és „szövegként
-megjelenítendő” jelzésnek tekintenek. Alapértelmezésben ki van kapcsolva, mert megváltoztatja az
-adatot (a `-5` szövegből `'-5` lesz); felhasználói adatot tartalmazó exportnál kapcsoljuk be. A
-`Cell::formula()`-val átadott értékeket nem módosítja.
+karakterrel kezdődő szöveges érték elé `'` kerül, így a táblázatkezelő szövegként mutatja, és nem
+futtatja. Az aposztróf látható marad: az Excel a kezdő `'` jelet csak akkor rejti el, ha cellába
+gépelik, CSV-fájlból érkezve nem (Excel for Mac 16-tal ellenőrizve). Alapértelmezésben ki van
+kapcsolva, mert megváltoztatja az adatot (a `-5` szövegből `'-5` lesz); felhasználói adatot
+tartalmazó exportnál kapcsoljuk be. A `Cell::formula()`-val átadott értékeket nem módosítja.
+
+Az Excel a számnak vagy dátumnak látszó CSV-mezőket is átalakítja: a `00123`-ból `123`, az
+`1e5`-ből `1,00E+05`, a `2026-01-15`-ből dátum lesz. Ezt CSV-ben nem lehet megakadályozni; ha az
+ilyen szövegnek meg kell maradnia, XLSX-et írjunk.
 
 ## Memória
 
