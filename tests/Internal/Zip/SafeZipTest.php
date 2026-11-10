@@ -178,7 +178,7 @@ final class SafeZipTest extends TestCase
         $archive = new ZipArchive;
         $this->assertTrue($archive->open($path, ZipArchive::CREATE));
         $archive->addFromString('secret.xml', '<r/>');
-        $archive->setEncryptionName('secret.xml', ZipArchive::EM_AES_256, 'x');
+        $this->assertTrue($archive->setEncryptionName('secret.xml', ZipArchive::EM_AES_256, 'x'), 'libzip must support AES-256 to build this fixture');
         $archive->close();
 
         $this->expectException(CorruptFile::class);

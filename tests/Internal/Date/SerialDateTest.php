@@ -29,6 +29,9 @@ final class SerialDateTest extends TestCase
 
     public function test_serial_60_is_1900_02_28_or_29_per_excel(): void
     {
+        // Serial 60 is Excel's fictitious 1900-02-29; it is reported as the last real day before it.
+        $this->assertSame('1900-02-28 00:00:00', SerialDate::toDateTime(60)->format('Y-m-d H:i:s'));
+        $this->assertSame('1900-02-28 12:00:00', SerialDate::toDateTime(60.5)->format('Y-m-d H:i:s'));
         $this->assertSame('1900-03-01', SerialDate::toDateTime(61)->format('Y-m-d'));
         $this->assertSame('1900-02-28', SerialDate::toDateTime(59)->format('Y-m-d'));
         $this->assertSame('1900-01-01', SerialDate::toDateTime(1)->format('Y-m-d'));
