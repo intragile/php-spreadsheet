@@ -101,8 +101,15 @@ final class Style
         return $clone;
     }
 
+    /**
+     * @throws InvalidArgumentException when the code is empty or not valid UTF-8
+     */
     public function numberFormat(string $code): self
     {
+        if ($code === '' || ! mb_check_encoding($code, 'UTF-8')) {
+            throw new InvalidArgumentException('A number format must be a non-empty UTF-8 string.');
+        }
+
         $clone = clone $this;
         $clone->numberFormat = $code;
 

@@ -65,10 +65,11 @@ final class Spreadsheet
         $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
 
         return match ($extension) {
-            'xlsx', 'xlsm' => Format::Xlsx,
+            'xlsx' => Format::Xlsx,
             'ods' => Format::Ods,
             'csv', 'txt' => Format::Csv,
             'xls' => throw new UnsupportedFormat('XLS writing is not supported; write xlsx, ods or csv instead.'),
+            'xlsm' => throw new UnsupportedFormat('XLSM writing is not supported: the workbook would hold no macros; write xlsx instead.'),
             default => throw new UnsupportedFormat($extension === ''
                 ? 'Cannot infer the output format: the path has no extension.'
                 : "Cannot infer the output format from the extension \"{$extension}\"."),

@@ -74,6 +74,13 @@ final class SpreadsheetTest extends TestCase
         Spreadsheet::write(Fixtures::path('foo'));
     }
 
+    public function test_xlsm_is_not_written_as_it_would_lack_macros(): void
+    {
+        $this->expectException(UnsupportedFormat::class);
+
+        Spreadsheet::write(Fixtures::path('xlsm'));
+    }
+
     public function test_cross_format_roundtrip(): void
     {
         $row = [42, 3.14, 'szöveg', true, new DateTimeImmutable('2025-01-31'), null, 'utolsó'];

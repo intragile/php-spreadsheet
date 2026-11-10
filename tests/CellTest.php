@@ -28,4 +28,11 @@ final class CellTest extends TestCase
         $this->assertSame($style, Cell::of(5, $style)->style);
         $this->assertSame('00123', Cell::text('00123')->value);
     }
+
+    public function test_formula_without_an_expression_throws(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        Cell::formula('=');
+    }
 }

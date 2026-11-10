@@ -36,12 +36,16 @@ final class Cell
     }
 
     /**
-     * @param  string  $formula  must start with "="
+     * @param  string  $formula  must start with "=" followed by an expression
      */
     public static function formula(string $formula, ?Style $style = null): self
     {
         if (! str_starts_with($formula, '=')) {
             throw new InvalidArgumentException('A formula must start with "=".');
+        }
+
+        if (trim(substr($formula, 1)) === '') {
+            throw new InvalidArgumentException('A formula needs an expression after "=".');
         }
 
         return new self($formula, $style, self::KIND_FORMULA);

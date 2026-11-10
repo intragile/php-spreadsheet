@@ -48,4 +48,18 @@ final class StyleTest extends TestCase
             Style::make()->numberFormat('0.00')->key(),
         );
     }
+
+    public function test_empty_number_format_throws(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        Style::make()->numberFormat('');
+    }
+
+    public function test_number_format_must_be_utf8(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        Style::make()->numberFormat("0.00 \xFF");
+    }
 }
