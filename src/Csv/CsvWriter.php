@@ -78,6 +78,8 @@ final class CsvWriter implements Writer
         $this->assertOpen();
         $this->sheetStarted = true;
 
+        $precision = NumberText::begin();
+
         try {
             $handle = $this->handle();
             $fields = [];
@@ -93,6 +95,8 @@ final class CsvWriter implements Writer
             $this->abort();
 
             throw $e;
+        } finally {
+            NumberText::end($precision);
         }
 
         return $this;
@@ -215,7 +219,7 @@ final class CsvWriter implements Writer
             $value === null => '',
             is_bool($value) => $value ? '1' : '0',
             is_int($value) => (string) $value,
-            is_float($value) => NumberText::fromFloat($value),
+            is_float($value) => NumberText::format($value),
             $value instanceof DateTimeInterface => $value->format($value->format('His') === '000000' ? 'Y-m-d' : 'Y-m-d H:i:s'),
             default => throw new InvalidArgumentException(sprintf('Unsupported cell value of type %s in column %d.', get_debug_type($value), $column)),
         };

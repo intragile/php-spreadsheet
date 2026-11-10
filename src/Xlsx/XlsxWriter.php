@@ -128,6 +128,8 @@ final class XlsxWriter implements Writer
     {
         $this->assertOpen();
 
+        $precision = NumberText::begin();
+
         try {
             if ($this->handle === null) {
                 $this->openSheet('Sheet1', null);
@@ -167,7 +169,7 @@ final class XlsxWriter implements Writer
                 } elseif (is_int($value)) {
                     $xml .= $c.'><v>'.$value.'</v></c>';
                 } elseif (is_float($value)) {
-                    $xml .= $c.'><v>'.NumberText::fromFloat($value).'</v></c>';
+                    $xml .= $c.'><v>'.NumberText::format($value).'</v></c>';
                 } elseif ($value === null) {
                     $xml .= $c.'/>';
                 } elseif (is_bool($value)) {
@@ -198,6 +200,8 @@ final class XlsxWriter implements Writer
             $this->abort();
 
             throw $e;
+        } finally {
+            NumberText::end($precision);
         }
 
         return $this;
@@ -401,7 +405,7 @@ final class XlsxWriter implements Writer
         $serial = SerialDate::fromDateTime($value);
         $id = $this->styles->idFor($style, true, $serial !== floor($serial));
 
-        return '<c'.$at.' s="'.$id.'"><v>'.NumberText::fromFloat($serial).'</v></c>';
+        return '<c'.$at.' s="'.$id.'"><v>'.NumberText::format($serial).'</v></c>';
     }
 
     /**
@@ -433,7 +437,7 @@ final class XlsxWriter implements Writer
             is_string($value) => $c.' t="inlineStr"><is>'.self::text($value).'</is></c>',
             is_bool($value) => $c.' t="b"><v>'.($value ? '1' : '0').'</v></c>',
             is_int($value) => $c.'><v>'.$value.'</v></c>',
-            default => $c.'><v>'.NumberText::fromFloat($value).'</v></c>',
+            default => $c.'><v>'.NumberText::format($value).'</v></c>',
         };
     }
 

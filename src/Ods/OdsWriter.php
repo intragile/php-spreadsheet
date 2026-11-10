@@ -135,6 +135,8 @@ final class OdsWriter implements Writer
     {
         $this->assertOpen();
 
+        $precision = NumberText::begin();
+
         try {
             if ($this->handle === null) {
                 $this->openSheet('Sheet1', null);
@@ -203,7 +205,7 @@ final class OdsWriter implements Writer
                     $xml .= '<table:table-cell'.$attribute.' office:value-type="string">'.self::paragraphs($value).'</table:table-cell>';
                 } elseif (is_int($value) || is_float($value)) {
                     // The text:p is the display copy that readers ignoring office:value show.
-                    $number = is_int($value) ? (string) $value : NumberText::fromFloat($value);
+                    $number = is_int($value) ? (string) $value : NumberText::format($value);
                     $xml .= '<table:table-cell'.$attribute.' office:value-type="float" office:value="'.$number.'"><text:p>'.$number.'</text:p></table:table-cell>';
                 } elseif (is_bool($value)) {
                     $xml .= '<table:table-cell'.$attribute.' office:value-type="boolean" office:boolean-value="'.($value ? 'true' : 'false').'"><text:p>'.($value ? 'TRUE' : 'FALSE').'</text:p></table:table-cell>';
@@ -235,6 +237,8 @@ final class OdsWriter implements Writer
             $this->abort();
 
             throw $e;
+        } finally {
+            NumberText::end($precision);
         }
 
         return $this;

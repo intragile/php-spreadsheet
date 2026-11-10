@@ -16,9 +16,51 @@ use InvalidArgumentException;
 final class NumberText
 {
     /**
+     * Formats a single value; for many values in a row, use begin(), format() and end().
+     *
      * @throws InvalidArgumentException when the value is NaN or infinite
      */
     public static function fromFloat(float $value): string
+    {
+        $previous = self::begin();
+
+        try {
+            return self::format($value);
+        } finally {
+            self::end($previous);
+        }
+    }
+
+    /**
+     * Switches serialize_precision to -1, the only setting under which var_export() yields the
+     * shortest round-trip form, and returns the setting to restore, or null when it already was -1.
+     */
+    public static function begin(): ?string
+    {
+        $previous = ini_get('serialize_precision');
+
+        if ($previous === '-1' || $previous === false) {
+            return null;
+        }
+
+        ini_set('serialize_precision', '-1');
+
+        return $previous;
+    }
+
+    public static function end(?string $previous): void
+    {
+        if ($previous !== null) {
+            ini_set('serialize_precision', $previous);
+        }
+    }
+
+    /**
+     * Formats a value between begin() and end().
+     *
+     * @throws InvalidArgumentException when the value is NaN or infinite
+     */
+    public static function format(float $value): string
     {
         // Also catches -0.0: spreadsheets have no negative zero, so it is written as plain zero.
         if ($value === 0.0) {
@@ -29,20 +71,7 @@ final class NumberText
             throw new InvalidArgumentException('Spreadsheet numbers must be finite; got '.var_export($value, true).'.');
         }
 
-        // var_export() follows serialize_precision; only -1 yields the shortest round-trip form.
-        if (ini_get('serialize_precision') === '-1') {
-            $text = var_export($value, true);
-        } else {
-            $previous = ini_set('serialize_precision', '-1');
-
-            try {
-                $text = var_export($value, true);
-            } finally {
-                if ($previous !== false) {
-                    ini_set('serialize_precision', $previous);
-                }
-            }
-        }
+        $text = var_export($value, true);
 
         return str_ends_with($text, '.0') ? substr($text, 0, -2) : $text;
     }
