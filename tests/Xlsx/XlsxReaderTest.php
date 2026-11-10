@@ -371,6 +371,16 @@ final class XlsxReaderTest extends TestCase
         iterator_to_array((new XlsxReader($path, new ReadOptions(maxCellBytes: 10)))->rows());
     }
 
+    public function test_formula_string_results_are_unescaped_but_errors_stay_raw(): void
+    {
+        $path = self::singleSheet('<row r="1">'
+            .'<c r="A1" t="str"><f>A2&amp;"x"</f><v>line1_x000D_line2 _x005F_x000D_</v></c>'
+            .'<c r="B1" t="e"><v>#N/A_x000D_</v></c>'
+            .'</row>');
+
+        $this->assertSame([1 => ["line1\rline2 _x000D_", '#N/A_x000D_']], iterator_to_array((new XlsxReader($path, new ReadOptions))->rows()));
+    }
+
     public function test_shared_string_count_is_limited(): void
     {
         $path = self::withSharedStrings(str_repeat('<si><t>a</t></si>', 4), '<row r="1"><c r="A1" t="s"><v>0</v></c></row>');

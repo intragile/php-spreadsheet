@@ -311,6 +311,8 @@ final class XlsxReader implements Reader
                                     default => $raw,
                                 },
                                 'd' => self::isoDate($raw),
+                                // Formula string results carry _xHHHH_ escapes like any other text.
+                                'str' => $raw === null ? null : self::unescape($raw),
                                 default => $raw,
                             };
 
