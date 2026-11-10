@@ -11,19 +11,26 @@ use IntrAgile\Spreadsheet\Internal\HeaderKeyedRows;
 use IntrAgile\Spreadsheet\ReadOptions;
 use IntrAgile\Spreadsheet\SheetInfo;
 use InvalidArgumentException;
+use LogicException;
 use Throwable;
 
 /**
  * Streams a CSV file one record at a time. Every value is a string; nothing is type-inferred.
  *
  * Input in another encoding is decoded to UTF-8 losslessly: a byte the code page leaves undefined
- * becomes U+FFFD instead of failing the read.
+ * becomes U+FFFD instead of failing the read. A field longer than ReadOptions::$maxCellBytes or a
+ * record with more than 16384 fields throws LimitExceeded before it is buffered.
  */
 final class CsvReader implements Reader
 {
     use HeaderKeyedRows;
 
     private const SHEET_NAME = 'Sheet1';
+
+    /** Most fields one record may hold: the column count of Excel and LibreOffice. */
+    private const MAX_FIELDS = 16_384;
+
+    private readonly int $maxCellBytes;
 
     private readonly CsvDialect $dialect;
 
@@ -47,6 +54,7 @@ final class CsvReader implements Reader
             throw new InvalidArgumentException('The CSV enclosure must be a single byte.');
         }
 
+        $this->maxCellBytes = $options->maxCellBytes;
         $this->dialect = new CsvDialect(
             $options->csvDelimiter ?? $sniffed->delimiter,
             $options->csvEnclosure,
@@ -103,6 +111,10 @@ final class CsvReader implements Reader
                 $cells = array_map(static fn (?string $cell): string => $cell ?? '', $record);
 
                 yield $number => $cells;
+
+                if (! array_key_exists($id, $this->handles)) {
+                    throw new LogicException('The reader was closed while its rows were being read.');
+                }
             }
         } finally {
             unset($this->handles[$id]);
@@ -135,6 +147,14 @@ final class CsvReader implements Reader
                 CsvDecoder::register();
                 self::appendFilter($handle, CsvDecoder::FILTER, $this->dialect->encoding);
             }
+
+            CsvGuardFilter::register();
+            self::appendFilter($handle, CsvGuardFilter::FILTER, [
+                'delimiter' => $this->dialect->delimiter,
+                'enclosure' => $this->dialect->enclosure,
+                'maxFieldBytes' => $this->maxCellBytes,
+                'maxFields' => self::MAX_FIELDS,
+            ]);
         } catch (Throwable $exception) {
             fclose($handle);
 
@@ -146,8 +166,9 @@ final class CsvReader implements Reader
 
     /**
      * @param  resource  $handle
+     * @param  string|array<string, int|string>  $params
      */
-    private static function appendFilter($handle, string $filter, string $params): void
+    private static function appendFilter($handle, string $filter, string|array $params): void
     {
         if (stream_filter_append($handle, $filter, STREAM_FILTER_READ, $params) === false) {
             throw new SpreadsheetException(sprintf('Cannot attach the %s stream filter.', $filter));

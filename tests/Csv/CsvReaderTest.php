@@ -6,11 +6,13 @@ namespace IntrAgile\Spreadsheet\Tests\Csv;
 
 use IntrAgile\Spreadsheet\Contracts\Reader;
 use IntrAgile\Spreadsheet\Csv\CsvReader;
+use IntrAgile\Spreadsheet\Exception\LimitExceeded;
 use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
 use IntrAgile\Spreadsheet\ReadOptions;
 use IntrAgile\Spreadsheet\Tests\Support\Fixtures;
 use IntrAgile\Spreadsheet\Tests\Support\TestCase;
 use InvalidArgumentException;
+use LogicException;
 
 final class CsvReaderTest extends TestCase
 {
@@ -118,6 +120,90 @@ final class CsvReaderTest extends TestCase
         $this->expectExceptionMessage('Unsupported CSV encoding "X-NONSENSE"');
 
         iterator_to_array((new CsvReader(Fixtures::file("a\n", 'csv'), new ReadOptions(csvEncoding: 'X-NONSENSE')))->rows());
+    }
+
+    public function test_a_stray_quote_cannot_swallow_the_rest_of_the_file(): void
+    {
+        $path = Fixtures::path('csv');
+        $handle = fopen($path, 'wb');
+        $this->assertIsResource($handle);
+        fwrite($handle, "a,b\n1,\"unterminated\n");
+
+        for ($i = 0; $i < 40_000; $i++) {
+            fwrite($handle, str_repeat('x,', 50)."\n");
+        }
+
+        fclose($handle);
+
+        self::withoutPhpErrors(function () use ($path): void {
+            $rows = 0;
+            $growth = self::peakGrowth(function () use ($path, &$rows): void {
+                try {
+                    foreach ((new CsvReader($path, new ReadOptions))->rows() as $row) {
+                        $rows++;
+                    }
+
+                    $this->fail('The unterminated field was accepted.');
+                } catch (LimitExceeded $exception) {
+                    $this->assertStringContainsString('1048576 bytes', $exception->getMessage());
+                }
+            });
+
+            $this->assertLessThan(8 * 1024 * 1024, $growth);
+        });
+    }
+
+    public function test_a_record_with_more_than_16384_fields_is_refused(): void
+    {
+        $ok = Fixtures::file(str_repeat(',', 16_383)."1\n", 'csv');
+        $this->assertCount(16_384, iterator_to_array((new CsvReader($ok, new ReadOptions))->rows())[1]);
+
+        $path = Fixtures::file("a\n".str_repeat(',', 16_384)."1\n", 'csv');
+
+        self::withoutPhpErrors(function () use ($path): void {
+            $this->expectException(LimitExceeded::class);
+            $this->expectExceptionMessage('16384 fields');
+
+            iterator_to_array((new CsvReader($path, new ReadOptions(csvDelimiter: ',')))->rows());
+        });
+    }
+
+    public function test_field_limit_is_configurable_and_counts_quoted_text(): void
+    {
+        $path = Fixtures::file("id,text\n1,\"ab\"\"c\nde\"\n2,ok\n", 'csv');
+
+        $this->assertSame(['1', "ab\"c\nde"], iterator_to_array((new CsvReader($path, new ReadOptions(maxCellBytes: 12)))->rows())[2]);
+
+        $this->expectException(LimitExceeded::class);
+
+        iterator_to_array((new CsvReader($path, new ReadOptions(maxCellBytes: 6)))->rows());
+    }
+
+    public function test_quotes_inside_unquoted_fields_are_literal_for_the_field_limit(): void
+    {
+        $lines = ['item,size'];
+
+        for ($i = 0; $i < 5000; $i++) {
+            $lines[] = "pipe {$i},5\" wide";
+        }
+
+        $path = Fixtures::file(implode("\n", $lines)."\n", 'csv');
+        $rows = iterator_to_array((new CsvReader($path, new ReadOptions(maxCellBytes: 20)))->rows());
+
+        $this->assertCount(5001, $rows);
+        $this->assertSame(['pipe 4999', '5" wide'], $rows[5001]);
+    }
+
+    public function test_resuming_rows_after_close_throws(): void
+    {
+        $reader = new CsvReader(Fixtures::committed('csv/utf8-bom-comma.csv'), new ReadOptions);
+        $rows = $reader->rows();
+        $rows->current();
+        $reader->close();
+
+        $this->expectException(LogicException::class);
+
+        $rows->next();
     }
 
     public function test_concurrent_generators_are_independent_and_close_releases_all(): void
