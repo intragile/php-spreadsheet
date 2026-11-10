@@ -60,6 +60,9 @@ final class OdsReader implements Reader
     /** Last row of Excel and LibreOffice; a non-empty row beyond it is rejected. */
     private const MAX_ROWS = 1_048_576;
 
+    /** Ceiling for repeat counts; far above every limit, yet sums of many stay within int range. */
+    private const MAX_REPEAT = 1_000_000_000_000;
+
     /** Most sheets a document may declare. */
     private const MAX_SHEETS = 4096;
 
@@ -568,7 +571,9 @@ final class OdsReader implements Reader
     }
 
     /**
-     * A repeat count: a positive decimal integer, 1 when absent.
+     * A repeat count: a positive decimal integer, 1 when absent. Counts longer than twelve digits
+     * are clamped to MAX_REPEAT, which still exceeds every limit: on empty cells and rows it is
+     * only counted, on content it is refused as LimitExceeded.
      *
      * @throws CorruptFile when the attribute is not a positive integer
      */
@@ -578,11 +583,27 @@ final class OdsReader implements Reader
             return 1;
         }
 
-        if ($value === '' || strlen($value) > 12 || ! ctype_digit($value) || (int) $value < 1) {
+        if (! ctype_digit($value)) {
             throw new CorruptFile(sprintf('The %s count "%s" is not a positive integer.', $attribute, $value));
         }
 
-        return (int) $value;
+        if (strlen($value) > 12) {
+            $digits = ltrim($value, '0');
+
+            if (strlen($digits) > 12) {
+                return self::MAX_REPEAT;
+            }
+
+            $value = $digits;
+        }
+
+        $count = (int) $value;
+
+        if ($count < 1) {
+            throw new CorruptFile(sprintf('The %s count "%s" is not a positive integer.', $attribute, $value));
+        }
+
+        return $count;
     }
 
     private function sheetIndex(int|string $sheet): int

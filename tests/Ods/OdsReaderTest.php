@@ -543,6 +543,107 @@ final class OdsReaderTest extends TestCase
         }
     }
 
+    public function test_row_of_plain_cells_beyond_the_column_cap_throws_limit_exceeded(): void
+    {
+        $this->expectException(LimitExceeded::class);
+        $this->expectExceptionMessage('A row has more than 65536 cells.');
+
+        // Distinct values keep the archive below the compression-ratio guard.
+        $cells = '';
+
+        for ($i = 0; $i < 65_537; $i++) {
+            $cells .= '<table:table-cell office:value-type="float" office:value="'.mt_rand().'"/>';
+        }
+
+        $this->readXml('<table:table-row>'.$cells.'</table:table-row>');
+    }
+
+    public function test_value_after_empty_cells_filling_the_column_cap_throws_limit_exceeded(): void
+    {
+        $this->expectException(LimitExceeded::class);
+        $this->expectExceptionMessage('A row has more than 65536 cells.');
+
+        $this->readXml('<table:table-row><table:table-cell table:number-columns-repeated="65536"/><table:table-cell office:value-type="float" office:value="1"/></table:table-row>');
+    }
+
+    public function test_row_filling_the_column_cap_exactly_is_allowed(): void
+    {
+        $rows = $this->readXml('<table:table-row><table:table-cell table:number-columns-repeated="65535"/><table:table-cell office:value-type="float" office:value="1"/></table:table-row>');
+
+        $this->assertCount(65_536, $rows[1]);
+        $this->assertSame(1, $rows[1][65_535]);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function oversizedRepeatProvider(): array
+    {
+        return [
+            'columns' => ['<table:table-row><table:table-cell office:value-type="float" office:value="1" table:number-columns-repeated="10000000000000"/></table:table-row>'],
+            'rows' => ['<table:table-row table:number-rows-repeated="10000000000000"><table:table-cell office:value-type="float" office:value="1"/></table:table-row>'],
+            'beyond int range' => ['<table:table-row table:number-rows-repeated="99999999999999999999999"><table:table-cell office:value-type="float" office:value="1"/></table:table-row>'],
+        ];
+    }
+
+    #[DataProvider('oversizedRepeatProvider')]
+    public function test_all_digit_repeat_beyond_twelve_digits_on_content_throws_limit_exceeded(string $xml): void
+    {
+        $this->expectException(LimitExceeded::class);
+
+        $this->readXml($xml);
+    }
+
+    public function test_all_digit_repeat_beyond_twelve_digits_on_empty_rows_and_cells_is_skipped(): void
+    {
+        $rows = $this->readXml('<table:table-row><table:table-cell office:value-type="float" office:value="1"/><table:table-cell table:number-columns-repeated="99999999999999999999999"/></table:table-row>'
+            .'<table:table-row table:number-rows-repeated="10000000000000"><table:table-cell table:number-columns-repeated="16384"/></table:table-row>'
+            .'<table:table-row table:number-rows-repeated="99999999999999999999999"/>');
+
+        $this->assertSame([1 => [1]], $rows);
+    }
+
+    public function test_long_repeat_with_leading_zeros_is_read_as_its_value(): void
+    {
+        $rows = $this->readXml('<table:table-row table:number-rows-repeated="00000000000002"><table:table-cell office:value-type="float" office:value="1"/></table:table-row>');
+
+        $this->assertSame([1 => [1], 2 => [1]], $rows);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function malformedRepeatProvider(): array
+    {
+        return [
+            'letters' => ['abc'],
+            'negative' => ['-5'],
+            'zero' => ['0'],
+            'long zeros' => ['00000000000000'],
+            'empty' => [''],
+            'long garbage' => ['1234567890123x'],
+        ];
+    }
+
+    #[DataProvider('malformedRepeatProvider')]
+    public function test_non_digit_or_zero_repeat_is_corrupt(string $value): void
+    {
+        $this->expectException(CorruptFile::class);
+
+        $this->readXml('<table:table-row table:number-rows-repeated="'.$value.'"><table:table-cell office:value-type="float" office:value="1"/></table:table-row>');
+    }
+
+    public function test_empty_rows_beyond_the_row_cap_are_skipped_whether_repeated_or_not(): void
+    {
+        $rows = $this->readXml('<table:table-row><table:table-cell office:value-type="float" office:value="1"/></table:table-row>'
+            .'<table:table-row table:number-rows-repeated="1048575"><table:table-cell table:number-columns-repeated="16384"/></table:table-row>'
+            .'<table:table-row table:style-name="ro1"><table:table-cell table:style-name="ce1" table:number-columns-repeated="16384"/></table:table-row>'
+            .'<table:table-row table:style-name="ro1"><table:table-cell office:value-type="string"/></table:table-row>'
+            .'<table:table-row table:number-rows-repeated="5"><table:table-cell/></table:table-row>');
+
+        $this->assertSame([1 => [1]], $rows);
+    }
+
     public function test_memory_flat(): void
     {
         $small = $this->buildLarge(30_000);
