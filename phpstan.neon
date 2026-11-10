@@ -5,3 +5,16 @@ parameters:
         - tests
     excludePaths:
         - tests/fixtures
+    # PHP 8.3 declares stream filter buckets as plain objects, so their data and datalen
+    # properties are mixed there; PHP 8.4 and later type them through StreamBucket.
+    ignoreErrors:
+        -
+            identifiers:
+                - assignOp.invalid
+                - parameterByRef.type
+                - argument.type
+            paths:
+                - src/Csv/CsvDecodeFilter.php
+                - src/Csv/CsvGuardFilter.php
+                - src/Csv/CsvLineEndingFilter.php
+            reportUnmatched: false
