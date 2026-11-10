@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-10
+
+First stable release: streaming XLSX, ODS and CSV reading and writing with bounded memory.
+
 ### Added
 
 - Package scaffold with a hardened zip and XML reading layer.
@@ -57,9 +61,13 @@ All notable changes to this project are documented here. The format follows
   offsets live in a fixed-width temporary file.
 - ISO 8601 date values with a trailing newline are no longer accepted.
 - A `csvEncoding` without byte order (`UTF-16`, `UCS-2`, `UTF-32`, `UCS-4`) on a file with a
-  byte-order mark decoded little-endian files to garbage; the mark now decides the byte order.
+  byte-order mark decoded little-endian files to garbage; the mark now decides the byte order. Without
+  a mark, the byte order detected from the content is used.
+- ODS: Excel ignored the autofilter of written files; the database range is now unnamed and the
+  `of` formula namespace is declared.
 - XLSX formula string results (`t="str"`) decode `_xHHHH_` escapes like other strings.
-- Closing one XML reader no longer discards libxml errors still owed to another open reader.
+- Closing one XML reader no longer discards libxml errors still owed to another open reader, and a
+  reader left in the middle of a step no longer leaves its errors behind for the next one.
 - ODS spaces next to tabs are written as `text:s`, so whitespace collapsing cannot drop them.
 
 ### Security
@@ -72,6 +80,8 @@ All notable changes to this project are documented here. The format follows
   `maxCellBytes`; the shared-string table obeys `maxSharedStrings`; workbook, relationship and styles
   parts are capped at 64 MiB, cell and number formats at 65,536.
 - XLSX and ODS: at most 4,096 sheets.
+- ODS writer: a row from a generator stops at the first cell past column 16,384 instead of
+  buffering the whole row first.
 - CSV: a field longer than `maxCellBytes` (such as the rest of the file after a stray quote) or a
   record with more than 16,384 fields throws `LimitExceeded` before it is buffered.
 - CSV: a vertical tab, form feed or carriage return before a stray quote no longer bypasses the

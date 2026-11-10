@@ -22,8 +22,9 @@ use Throwable;
  *
  * Spreadsheet applications run a CSV field that starts with "=", "+", "-" or "@" as a formula
  * (CSV injection). With $escapeFormulas, every string value starting with one of those, a tab or
- * a carriage return is written with a leading apostrophe, which Excel and LibreOffice hide and
- * treat as "show as text". Cell::formula() values are explicit and stay verbatim.
+ * a carriage return is written with a leading apostrophe. Excel keeps an apostrophe that comes from
+ * a CSV file visible, so the field shows as text, not as a result. Cell::formula() values are explicit
+ * and stay verbatim.
  */
 final class CsvWriter implements Writer
 {
