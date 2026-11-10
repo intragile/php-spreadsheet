@@ -150,10 +150,12 @@ final class SafeZip
 
     /**
      * Streams an XML entry; the reader throws LimitExceeded once a byte limit is reached.
+     *
+     * @param  int|null  $maxBytes  Cap for this entry below the archive-wide limit; null applies only the archive-wide limit.
      */
-    public function xmlReader(string $name): SafeXmlReader
+    public function xmlReader(string $name, ?int $maxBytes = null): SafeXmlReader
     {
-        $entry = $this->entryBudget($name, $this->maxUncompressedBytes);
+        $entry = $this->entryBudget($name, $maxBytes ?? $this->maxUncompressedBytes);
         $total = $this->total;
         $uri = ZipEntryStream::register($this->zip, $name, [$entry, $total]);
         $this->uris[] = $uri;

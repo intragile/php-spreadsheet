@@ -50,6 +50,15 @@ final class XlsxReader implements Reader
     /** Distinct date serials remembered per pass; real sheets repeat a limited set of days. */
     private const DATE_CACHE_SIZE = 4096;
 
+    /** Largest workbook, relationships or styles part; real ones stay far below a megabyte. */
+    private const MAX_METADATA_BYTES = 67_108_864;
+
+    /** Most sheets a workbook may declare. */
+    private const MAX_SHEETS = 4096;
+
+    /** Most cell formats (xf) or number formats a styles part may declare; Excel allows about 64,000. */
+    private const MAX_STYLE_RECORDS = 65_536;
+
     /** @var list<array{name: string, part: string|null, visible: bool}> */
     private array $sheets = [];
 
@@ -149,6 +158,7 @@ final class XlsxReader implements Reader
             $dateStyles = $this->dateStyles;
             $checkStyles = $dateStyles !== [];
             $date1904 = $this->date1904;
+            $maxCellBytes = $this->options->maxCellBytes;
 
             $xml = $zip->xmlReader($part);
 
@@ -179,6 +189,10 @@ final class XlsxReader implements Reader
 
                         if ($reference === null) {
                             $column = $position;
+
+                            if ($column > ColumnName::MAX_INDEX) {
+                                throw new LimitExceeded(sprintf('A row has more than %d columns.', ColumnName::MAX_INDEX + 1));
+                            }
                         } else {
                             $letters = rtrim($reference, '0123456789');
                             $column = $columns[$letters] ?? ($columns[$letters] = self::columnIndex($letters, $reference));
@@ -232,7 +246,7 @@ final class XlsxReader implements Reader
                                 if ($child === 'is' && ! $x->isEmptyElement) {
                                     $itemDepth = $x->depth;
 
-                                    if (! $x->read() || ($inline = self::richText($x, $itemDepth)) === null) {
+                                    if (! $x->read() || ($inline = self::richText($x, $itemDepth, $maxCellBytes)) === null) {
                                         break 2;
                                     }
 
@@ -300,6 +314,10 @@ final class XlsxReader implements Reader
 
                             if ($value === null || $value === '') {
                                 continue;
+                            }
+
+                            if (is_string($value) && strlen($value) > $maxCellBytes) {
+                                throw self::cellTooLong($maxCellBytes);
                             }
                         }
 
@@ -376,7 +394,8 @@ final class XlsxReader implements Reader
 
     private function readSharedStrings(SafeZip $zip): SharedStringTable
     {
-        $table = new SharedStringTable($this->options->sharedStringsInMemory);
+        $table = new SharedStringTable($this->options->sharedStringsInMemory, $this->options->maxSharedStrings);
+        $maxCellBytes = $this->options->maxCellBytes;
 
         if ($this->sharedStringsPart === null) {
             return $table;
@@ -419,13 +438,17 @@ final class XlsxReader implements Reader
                             }
 
                             if ($x->nodeType !== XMLReader::END_ELEMENT || $x->depth !== $depth) {
-                                $rest = self::richText($x, $depth);
+                                $rest = self::richText($x, $depth, $maxCellBytes);
 
                                 if ($rest === null) {
                                     break;
                                 }
 
                                 $text .= $rest;
+                            }
+
+                            if (strlen($text) > $maxCellBytes) {
+                                throw self::cellTooLong($maxCellBytes);
                             }
 
                             $table->add(self::unescape($text));
@@ -462,8 +485,10 @@ final class XlsxReader implements Reader
      * Concatenates the <t> runs of a string item (<si> or <is>), leaving out phonetic guides
      * (<rPh>). Starts with the reader on the item's first child and stops on the item's end tag
      * at $depth; null when the reader failed on the way. Escapes are left for unescape().
+     *
+     * @throws LimitExceeded when the text grows beyond $maxBytes
      */
-    private static function richText(XMLReader $x, int $depth): ?string
+    private static function richText(XMLReader $x, int $depth, int $maxBytes): ?string
     {
         $text = '';
         $inText = false;
@@ -493,6 +518,10 @@ final class XlsxReader implements Reader
                 $inText = false;
             } elseif ($inText) {
                 $text .= $x->value;
+
+                if (strlen($text) > $maxBytes) {
+                    throw self::cellTooLong($maxBytes);
+                }
             }
 
             if (! $x->read()) {
@@ -525,6 +554,11 @@ final class XlsxReader implements Reader
     private static function isoDate(?string $raw): ?DateTimeImmutable
     {
         return $raw === null || $raw === '' ? null : IsoDate::parse($raw);
+    }
+
+    private static function cellTooLong(int $maxBytes): LimitExceeded
+    {
+        return new LimitExceeded(sprintf('A cell holds more than %d bytes of text.', $maxBytes));
     }
 
     private static function columnIndex(string $letters, string $reference): int
@@ -589,7 +623,7 @@ final class XlsxReader implements Reader
             $targets[$relationship['id']] = $relationship['target'];
         }
 
-        $xml = $zip->xmlReader($workbook);
+        $xml = $zip->xmlReader($workbook, self::MAX_METADATA_BYTES);
 
         try {
             while ($xml->read()) {
@@ -602,6 +636,10 @@ final class XlsxReader implements Reader
                 if ($name === 'workbookPr') {
                     $this->date1904 = in_array(strtolower(trim((string) $xml->attribute('date1904'))), ['1', 'true'], true);
                 } elseif ($name === 'sheet') {
+                    if (count($this->sheets) >= self::MAX_SHEETS) {
+                        throw new LimitExceeded(sprintf('The workbook has more than %d sheets.', self::MAX_SHEETS));
+                    }
+
                     $id = null;
 
                     foreach (self::RELATIONSHIP_NAMESPACES as $namespace) {
@@ -630,7 +668,7 @@ final class XlsxReader implements Reader
      */
     private function readStyles(SafeZip $zip, string $part): void
     {
-        $xml = $zip->xmlReader($part);
+        $xml = $zip->xmlReader($part, self::MAX_METADATA_BYTES);
         /** @var array<int, bool> $custom numFmtId => is a date */
         $custom = [];
         /** @var list<int> $cellFormats numFmtId of each xf */
@@ -664,11 +702,19 @@ final class XlsxReader implements Reader
                     $id = self::unsignedInt($xml->attribute('numFmtId'));
 
                     if ($id !== null) {
+                        if (count($custom) >= self::MAX_STYLE_RECORDS && ! isset($custom[$id])) {
+                            throw new LimitExceeded(sprintf('The styles part declares more than %d number formats.', self::MAX_STYLE_RECORDS));
+                        }
+
                         $custom[$id] = NumberFormats::isDate((string) $xml->attribute('formatCode'));
                     }
                 } elseif ($name === 'cellXfs') {
                     $cellXfsDepth = $xml->isEmptyElement() ? null : $xml->depth();
                 } elseif ($name === 'xf' && $cellXfsDepth !== null && $xml->depth() === $cellXfsDepth + 1) {
+                    if (count($cellFormats) >= self::MAX_STYLE_RECORDS) {
+                        throw new LimitExceeded(sprintf('The styles part declares more than %d cell formats.', self::MAX_STYLE_RECORDS));
+                    }
+
                     // Every xf keeps its position, as cells refer to it by index; a missing id means General.
                     $cellFormats[] = self::unsignedInt($xml->attribute('numFmtId')) ?? 0;
                 }
@@ -728,7 +774,7 @@ final class XlsxReader implements Reader
 
         $directory = dirname($relsPath, 2);
         $base = $directory === '.' ? '' : $directory.'/';
-        $xml = $zip->xmlReader($relsPath);
+        $xml = $zip->xmlReader($relsPath, self::MAX_METADATA_BYTES);
         $entries = [];
 
         try {

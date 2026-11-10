@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace IntrAgile\Spreadsheet\Tests\Xlsx;
 
+use IntrAgile\Spreadsheet\Exception\LimitExceeded;
 use IntrAgile\Spreadsheet\Tests\Support\TestCase;
 use IntrAgile\Spreadsheet\Xlsx\SharedStringTable;
 use LogicException;
@@ -116,5 +117,58 @@ final class SharedStringTableTest extends TestCase
 
         $this->assertCount(count($before) + 1, $during);
         $this->assertCount(count($before), $after);
+    }
+
+    public function test_spilled_entries_cost_no_memory_per_entry(): void
+    {
+        $small = new SharedStringTable(0);
+        $large = new SharedStringTable(0);
+
+        $smallGrowth = self::peakGrowth(static function () use ($small): void {
+            for ($i = 0; $i < 100_000; $i++) {
+                $small->add('');
+            }
+        });
+        $largeGrowth = self::peakGrowth(static function () use ($large): void {
+            for ($i = 0; $i < 2_100_000; $i++) {
+                $large->add('');
+            }
+        });
+
+        // An in-memory offset table would need 16 MB for the extra two million entries.
+        $this->assertLessThan(1024 * 1024, $largeGrowth - $smallGrowth);
+        $this->assertSame('', $large->get(2_099_999));
+        $small->close();
+        $large->close();
+    }
+
+    public function test_spilled_lookups_survive_index_blocks_and_late_additions(): void
+    {
+        $table = new SharedStringTable(3);
+
+        for ($i = 0; $i < 20_000; $i++) {
+            $table->add("s{$i}");
+        }
+
+        $this->assertSame('s19999', $table->get(19_999));
+        $this->assertSame('s5', $table->get(5));
+        $this->assertSame('s8195', $table->get(8_195));
+        $this->assertSame('s2', $table->get(2));
+        $table->add('late');
+        $this->assertSame('late', $table->get(20_000));
+        $this->assertSame('s19998', $table->get(19_998));
+        $this->assertSame('', $table->get(20_001));
+        $table->close();
+    }
+
+    public function test_entry_limit(): void
+    {
+        $table = new SharedStringTable(1, 2);
+        $table->add('a');
+        $table->add('b');
+
+        $this->expectException(LimitExceeded::class);
+
+        $table->add('c');
     }
 }

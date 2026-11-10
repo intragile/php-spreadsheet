@@ -322,6 +322,101 @@ final class XlsxReaderTest extends TestCase
         }
     }
 
+    public function test_cells_without_reference_beyond_last_column_are_refused(): void
+    {
+        $path = self::singleSheet('<row r="1">'.str_repeat('<c><v>1</v></c>', 16_385).'</row>');
+
+        self::withoutPhpErrors(function () use ($path): void {
+            $reader = new XlsxReader($path, new ReadOptions);
+
+            try {
+                iterator_to_array($reader->rows());
+                $this->fail('A cell beyond column XFD was accepted.');
+            } catch (LimitExceeded $exception) {
+                $this->assertStringContainsString('16384 columns', $exception->getMessage());
+            } finally {
+                $reader->close();
+            }
+        });
+    }
+
+    public function test_cells_without_reference_up_to_last_column_are_read(): void
+    {
+        $rows = iterator_to_array((new XlsxReader(self::singleSheet('<row r="1">'.str_repeat('<c><v>1</v></c>', 16_384).'</row>'), new ReadOptions))->rows());
+
+        $this->assertCount(16_384, $rows[1]);
+    }
+
+    public function test_shared_string_beyond_the_cell_limit_is_refused(): void
+    {
+        $path = self::withSharedStrings('<si><r><t>abcdef</t></r><r><t>ghijk</t></r></si>', '<row r="1"><c r="A1" t="s"><v>0</v></c></row>');
+
+        $this->assertSame([1 => ['abcdefghijk']], iterator_to_array((new XlsxReader($path, new ReadOptions(maxCellBytes: 11)))->rows()));
+
+        self::withoutPhpErrors(function () use ($path): void {
+            $this->expectException(LimitExceeded::class);
+
+            iterator_to_array((new XlsxReader($path, new ReadOptions(maxCellBytes: 10)))->rows());
+        });
+    }
+
+    public function test_inline_string_beyond_the_cell_limit_is_refused(): void
+    {
+        $path = self::singleSheet('<row r="1"><c r="A1" t="inlineStr"><is><t>abcdefghijk</t></is></c></row>');
+
+        $this->assertSame([1 => ['abcdefghijk']], iterator_to_array((new XlsxReader($path, new ReadOptions(maxCellBytes: 11)))->rows()));
+
+        $this->expectException(LimitExceeded::class);
+
+        iterator_to_array((new XlsxReader($path, new ReadOptions(maxCellBytes: 10)))->rows());
+    }
+
+    public function test_shared_string_count_is_limited(): void
+    {
+        $path = self::withSharedStrings(str_repeat('<si><t>a</t></si>', 4), '<row r="1"><c r="A1" t="s"><v>0</v></c></row>');
+
+        $this->assertCount(1, iterator_to_array((new XlsxReader($path, new ReadOptions(maxSharedStrings: 4)))->rows()));
+
+        self::withoutPhpErrors(function () use ($path): void {
+            $this->expectException(LimitExceeded::class);
+            $this->expectExceptionMessage('3 entries');
+
+            iterator_to_array((new XlsxReader($path, new ReadOptions(maxSharedStrings: 3)))->rows());
+        });
+    }
+
+    public function test_more_than_4096_sheets_are_refused(): void
+    {
+        $path = Fixtures::zip([
+            '_rels/.rels' => self::packageRels(),
+            'xl/workbook.xml' => '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheets>'
+                .str_repeat('<sheet name="s"/>', 4097).'</sheets></workbook>',
+        ], 'xlsx');
+
+        $this->expectException(LimitExceeded::class);
+        $this->expectExceptionMessage('4096 sheets');
+
+        new XlsxReader($path, new ReadOptions);
+    }
+
+    public function test_more_than_65536_cell_formats_are_refused(): void
+    {
+        $path = Fixtures::zip([
+            '_rels/.rels' => self::packageRels(),
+            'xl/workbook.xml' => self::workbook(),
+            'xl/_rels/workbook.xml.rels' => self::workbookRels(),
+            'xl/styles.xml' => '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cellXfs>'
+                .str_repeat('<xf numFmtId="14"/>', 65_537).'</cellXfs></styleSheet>',
+            'xl/worksheets/sheet1.xml' => '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>',
+        ], 'xlsx');
+
+        $this->expectException(LimitExceeded::class);
+        $this->expectExceptionMessage('65536 cell formats');
+
+        // The repetitive part compresses far beyond the default ratio limit, which would hide the cap.
+        new XlsxReader($path, new ReadOptions(maxCompressionRatio: 1_000_000));
+    }
+
     public function test_pretty_printed_sheet_with_absolute_targets(): void
     {
         $path = Fixtures::zip([
@@ -505,6 +600,17 @@ final class XlsxReaderTest extends TestCase
         }
 
         return self::singleSheet($data.'<row r="'.($rows + 1).'"><c r="A'.($rows + 1).'"><v>2', false);
+    }
+
+    private static function withSharedStrings(string $items, string $sheetData): string
+    {
+        return Fixtures::zip([
+            '_rels/.rels' => self::packageRels(),
+            'xl/workbook.xml' => self::workbook(),
+            'xl/_rels/workbook.xml.rels' => str_replace('</Relationships>', '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>', self::workbookRels()),
+            'xl/sharedStrings.xml' => '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'.$items.'</sst>',
+            'xl/worksheets/sheet1.xml' => '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'.$sheetData.'</sheetData></worksheet>',
+        ], 'xlsx');
     }
 
     private static function singleSheet(string $sheetData, bool $close = true): string

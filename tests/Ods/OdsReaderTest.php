@@ -209,6 +209,20 @@ final class OdsReaderTest extends TestCase
         iterator_to_array((new OdsReader(self::singleTable($xml), new ReadOptions(maxCells: 11)))->rows());
     }
 
+    public function test_more_than_4096_sheets_are_refused(): void
+    {
+        $path = Fixtures::zip([
+            'mimetype' => 'application/vnd.oasis.opendocument.spreadsheet',
+            'content.xml' => '<office:document-content '.self::NS.'><office:body><office:spreadsheet>'
+                .str_repeat('<table:table table:name="s"/>', 4097).'</office:spreadsheet></office:body></office:document-content>',
+        ], 'ods');
+
+        $this->expectException(LimitExceeded::class);
+        $this->expectExceptionMessage('4096 sheets');
+
+        new OdsReader($path, new ReadOptions);
+    }
+
     public function test_sheet_selection_by_name_and_index_and_unknown_throws(): void
     {
         $reader = new OdsReader(Fixtures::committed('ods/multi-sheet.ods'), new ReadOptions);
