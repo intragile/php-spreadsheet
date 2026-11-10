@@ -272,6 +272,42 @@ final class CsvReaderTest extends TestCase
         iterator_to_array((new CsvReader($path, new ReadOptions(maxCellBytes: 6)))->rows());
     }
 
+    /**
+     * @return iterable<string, array{int}>
+     */
+    public static function smallFieldLimits(): iterable
+    {
+        yield '64 bytes' => [64];
+        yield '1 KiB' => [1024];
+        yield '4 KiB' => [4096];
+    }
+
+    #[DataProvider('smallFieldLimits')]
+    public function test_a_field_limit_below_the_read_chunk_is_exact_at_every_offset(int $limit): void
+    {
+        // Short quoted records spanning many read chunks, with one field of exactly $limit raw bytes
+        // (enclosures included) placed at shifting offsets, so it straddles chunk and window edges.
+        $filler = str_repeat("1,\"a, b\",\"c \"\"d\"\"\"\n", 700);
+
+        foreach ([0, 1, 7, 13] as $shift) {
+            $prefix = $filler.str_repeat("x\n", $shift);
+            $fits = Fixtures::file($prefix.'2,"'.str_repeat('y', $limit - 2)."\"\n3,z\n", 'csv');
+            $rows = iterator_to_array((new CsvReader($fits, new ReadOptions(maxCellBytes: $limit)))->rows(), false);
+
+            $this->assertCount(700 + $shift + 2, $rows);
+            $this->assertSame(['2', str_repeat('y', $limit - 2)], $rows[700 + $shift]);
+
+            $tooLong = Fixtures::file($prefix.'2,"'.str_repeat('y', $limit - 1)."\"\n3,z\n", 'csv');
+
+            try {
+                iterator_to_array((new CsvReader($tooLong, new ReadOptions(maxCellBytes: $limit)))->rows());
+                $this->fail("A field of {$limit} + 1 bytes must be refused (shift {$shift}).");
+            } catch (LimitExceeded $e) {
+                $this->assertStringContainsString("{$limit} bytes", $e->getMessage());
+            }
+        }
+    }
+
     public function test_quotes_inside_unquoted_fields_are_literal_for_the_field_limit(): void
     {
         $lines = ['item,size'];
