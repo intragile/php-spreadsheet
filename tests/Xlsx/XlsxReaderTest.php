@@ -239,6 +239,33 @@ final class XlsxReaderTest extends TestCase
         }
     }
 
+    public function test_empty_rows_beyond_the_spreadsheet_maximum_are_skipped(): void
+    {
+        $path = self::singleSheet('<row r="1"><c r="A1"><v>1</v></c></row>'
+            .'<row r="1048577" s="1" customFormat="1"/>'
+            .'<row r="2000000" ht="20" customHeight="1"><c r="A2000000" s="1"/><c r="B2000000" t="s"/><c r="C2000000"><v></v></c></row>'
+            .'<row><c t="inlineStr"><is><t></t></is></c></row>');
+
+        $this->assertSame([1 => [1]], iterator_to_array((new XlsxReader($path, new ReadOptions))->rows()));
+    }
+
+    public function test_non_empty_row_beyond_the_spreadsheet_maximum_names_the_limit(): void
+    {
+        $path = self::singleSheet('<row r="1048576"><c r="A1048576"><v>1</v></c></row><row r="1048577"/><row><c r="A1048578"><v>2</v></c></row>');
+        $rows = [];
+
+        try {
+            foreach ((new XlsxReader($path, new ReadOptions))->rows() as $number => $row) {
+                $rows[$number] = $row;
+            }
+
+            $this->fail('A non-empty row beyond the last row must throw.');
+        } catch (LimitExceeded $exception) {
+            $this->assertSame('A non-empty row lies beyond row 1048576.', $exception->getMessage());
+            $this->assertSame([1_048_576 => [1]], $rows);
+        }
+    }
+
     public function test_malformed_sheet_is_corrupt(): void
     {
         $path = Fixtures::zip([
@@ -367,6 +394,28 @@ final class XlsxReaderTest extends TestCase
         $this->assertSame([1 => ['abcdefghijk']], iterator_to_array((new XlsxReader($path, new ReadOptions(maxCellBytes: 11)))->rows()));
 
         $this->expectException(LimitExceeded::class);
+
+        iterator_to_array((new XlsxReader($path, new ReadOptions(maxCellBytes: 10)))->rows());
+    }
+
+    public function test_formula_string_results_are_unescaped_but_errors_stay_raw(): void
+    {
+        $path = self::singleSheet('<row r="1">'
+            .'<c r="A1" t="str"><f>A2&amp;"x"</f><v>line1_x000D_line2 _x005F_x000D_</v></c>'
+            .'<c r="B1" t="e"><v>#N/A_x000D_</v></c>'
+            .'</row>');
+
+        $this->assertSame([1 => ["line1\rline2 _x000D_", '#N/A_x000D_']], iterator_to_array((new XlsxReader($path, new ReadOptions))->rows()));
+    }
+
+    public function test_non_numeric_untyped_value_beyond_the_cell_limit_is_refused(): void
+    {
+        $path = self::singleSheet('<row r="1"><c r="A1"><v>abcdefghijk</v></c><c r="B1" t="n"><v>lmnopqrstuv</v></c></row>');
+
+        $this->assertSame([1 => ['abcdefghijk', 'lmnopqrstuv']], iterator_to_array((new XlsxReader($path, new ReadOptions(maxCellBytes: 11)))->rows()));
+
+        $this->expectException(LimitExceeded::class);
+        $this->expectExceptionMessage('A cell holds more than 10 bytes of text.');
 
         iterator_to_array((new XlsxReader($path, new ReadOptions(maxCellBytes: 10)))->rows());
     }
@@ -615,6 +664,32 @@ final class XlsxReaderTest extends TestCase
             $good->close();
             $bad->close();
         }
+    }
+
+    public function test_sheet_failing_mid_row_leaves_no_error_behind_for_a_suspended_one(): void
+    {
+        $good = new XlsxReader(Fixtures::committed('xlsx/excel-mixed.xlsx'), new ReadOptions);
+        // libxml parses ahead and records the truncation before the bad reference is reached.
+        $bad = new XlsxReader(self::singleSheet('<row r="1"><c r="A1"><v>1</v></c><c r="1A"><v>2</v></c></row><row r="2"><c', false), new ReadOptions);
+        $expected = array_map(self::normalize(...), $this->read('excel-mixed.xlsx'));
+
+        $first = $good->rows();
+        $collected = [$first->key() => self::normalize($first->current())];
+
+        try {
+            iterator_to_array($bad->rows());
+            $this->fail('A bad cell reference must throw.');
+        } catch (CorruptFile $exception) {
+            $this->assertSame('The cell reference "1A" is not valid.', $exception->getMessage());
+        }
+
+        for ($first->next(); $first->valid(); $first->next()) {
+            $collected[$first->key()] = self::normalize($first->current());
+        }
+
+        $this->assertSame($expected, $collected);
+        $good->close();
+        $bad->close();
     }
 
     private static function truncatedSheet(int $rows): string
