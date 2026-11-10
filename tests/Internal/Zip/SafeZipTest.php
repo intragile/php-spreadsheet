@@ -11,6 +11,9 @@ use IntrAgile\Spreadsheet\Internal\Xml\MalformedXml;
 use IntrAgile\Spreadsheet\Internal\Zip\SafeZip;
 use IntrAgile\Spreadsheet\Tests\Support\Fixtures;
 use IntrAgile\Spreadsheet\Tests\Support\TestCase;
+use ReflectionClass;
+use ReflectionMethod;
+use ReflectionProperty;
 use XMLReader;
 use ZipArchive;
 
@@ -236,6 +239,52 @@ final class SafeZipTest extends TestCase
         } finally {
             $zip->close();
         }
+    }
+
+    public function test_an_unreadable_entry_header_refuses_the_archive(): void
+    {
+        // libzip offers no way to build an archive it opens but cannot stat, so the failure is
+        // simulated by a ZipArchive whose statIndex() fails.
+        $archive = self::withUnreadableHeaders(Fixtures::zip(['a.txt' => 'alpha']));
+
+        $this->expectException(CorruptFile::class);
+        $this->expectExceptionMessage('The archive entry #0 cannot be read.');
+
+        (new ReflectionMethod(SafeZip::class, 'catalogue'))->invoke($archive, 200);
+    }
+
+    public function test_an_entry_header_unreadable_at_read_time_is_a_corrupt_file(): void
+    {
+        $archive = self::withUnreadableHeaders(Fixtures::zip(['a.txt' => 'alpha']));
+        (new ReflectionProperty(SafeZip::class, 'entries'))->setValue($archive, ['a.txt' => 0]);
+
+        $this->expectException(CorruptFile::class);
+        $this->expectExceptionMessage('The archive entry "a.txt" cannot be read.');
+
+        $archive->read('a.txt', 1024);
+    }
+
+    /**
+     * A SafeZip over a real archive whose entry headers cannot be read.
+     */
+    private static function withUnreadableHeaders(string $path): SafeZip
+    {
+        $zip = new class extends ZipArchive
+        {
+            public function statIndex(int $index, int $flags = 0): array|false
+            {
+                return false;
+            }
+        };
+        self::assertTrue($zip->open($path, ZipArchive::RDONLY));
+
+        $class = new ReflectionClass(SafeZip::class);
+        $archive = $class->newInstanceWithoutConstructor();
+        $constructor = $class->getConstructor();
+        self::assertNotNull($constructor);
+        $constructor->invoke($archive, $zip, self::BYTES);
+
+        return $archive;
     }
 
     private function countElements(SafeZip $zip, string $name, int $maxBytes): int

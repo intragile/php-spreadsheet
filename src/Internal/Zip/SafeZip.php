@@ -72,30 +72,7 @@ final class SafeZip
         $archive = new self($zip, $maxUncompressedBytes);
 
         try {
-            for ($index = 0; $index < $zip->numFiles; $index++) {
-                $stat = $zip->statIndex($index);
-
-                // An entry whose header cannot be read cannot be vetted, so the archive is refused.
-                if (! is_array($stat)) {
-                    throw new CorruptFile(sprintf('The archive entry #%d cannot be read.', $index));
-                }
-
-                if ($stat['encryption_method'] !== ZipArchive::EM_NONE) {
-                    throw new CorruptFile(sprintf('The archive entry "%s" is encrypted.', $stat['name']));
-                }
-
-                if ($stat['size'] > $maxUncompressedBytes) {
-                    throw new LimitExceeded(sprintf('The archive entry "%s" declares %d bytes; the limit is %d.', $stat['name'], $stat['size'], $maxUncompressedBytes));
-                }
-
-                if ($stat['size'] > self::RATIO_FLOOR_BYTES && $stat['comp_size'] > 0 && $maxCompressionRatio < $stat['size'] / $stat['comp_size']) {
-                    throw new LimitExceeded(sprintf('The archive entry "%s" has a compression ratio above %d:1.', $stat['name'], $maxCompressionRatio));
-                }
-
-                if (self::isSafeName($stat['name'])) {
-                    $archive->entries[$stat['name']] = $index;
-                }
-            }
+            $archive->catalogue($maxCompressionRatio);
         } catch (CorruptFile|LimitExceeded $exception) {
             $zip->close();
 
@@ -103,6 +80,40 @@ final class SafeZip
         }
 
         return $archive;
+    }
+
+    /**
+     * Vets every entry header and records the entries with safe names.
+     *
+     * @throws CorruptFile when an entry header cannot be read or an entry is encrypted
+     * @throws LimitExceeded when an entry declares too many bytes or compresses too well
+     */
+    private function catalogue(int $maxCompressionRatio): void
+    {
+        for ($index = 0; $index < $this->zip->numFiles; $index++) {
+            $stat = $this->zip->statIndex($index);
+
+            // An entry whose header cannot be read cannot be vetted, so the archive is refused.
+            if (! is_array($stat)) {
+                throw new CorruptFile(sprintf('The archive entry #%d cannot be read.', $index));
+            }
+
+            if ($stat['encryption_method'] !== ZipArchive::EM_NONE) {
+                throw new CorruptFile(sprintf('The archive entry "%s" is encrypted.', $stat['name']));
+            }
+
+            if ($stat['size'] > $this->maxUncompressedBytes) {
+                throw new LimitExceeded(sprintf('The archive entry "%s" declares %d bytes; the limit is %d.', $stat['name'], $stat['size'], $this->maxUncompressedBytes));
+            }
+
+            if ($stat['size'] > self::RATIO_FLOOR_BYTES && $stat['comp_size'] > 0 && $maxCompressionRatio < $stat['size'] / $stat['comp_size']) {
+                throw new LimitExceeded(sprintf('The archive entry "%s" has a compression ratio above %d:1.', $stat['name'], $maxCompressionRatio));
+            }
+
+            if (self::isSafeName($stat['name'])) {
+                $this->entries[$stat['name']] = $index;
+            }
+        }
     }
 
     public function has(string $name): bool
