@@ -14,5 +14,6 @@ final readonly class CsvDialect
         public string $enclosure,
         public string $encoding,
         public int $bomLength,
+        public bool $carriageReturnLines = false,
     ) {}
 }

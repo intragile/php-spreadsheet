@@ -27,6 +27,41 @@ final class CsvReaderTest extends TestCase
         $this->assertSame(['Őrmester Ügyfél', '99,5', 'Szőlős'], $rows[3]);
     }
 
+    /** @return iterable<string, array{string}> */
+    public static function excelForMacExports(): iterable
+    {
+        // Genuine files saved by Excel for Mac 16.114 as "CSV" (CRLF) and "CSV Mac" (CR only).
+        yield 'CSV' => ['csv/excel-mac-export.csv'];
+        yield 'CSV Mac' => ['csv/excel-mac-export-cr.csv'];
+    }
+
+    #[DataProvider('excelForMacExports')]
+    public function test_excel_for_mac_export(string $fixture): void
+    {
+        $rows = self::withoutPhpErrors(static fn (): array => iterator_to_array((new CsvReader(Fixtures::committed($fixture), new ReadOptions))->rows()));
+
+        $this->assertCount(6, $rows);
+        $this->assertSame(['ID', 'Név', 'Összeg', 'Dátum', 'Aktív', 'Megjegyzés', 'Kód', 'Képlet-szöveg'], $rows[1]);
+        $this->assertSame(['1', 'Árvíztűrő tükörfúrógép', '1234,56', '2026-01-15', 'IGAZ', 'első sor', '00123', '=1+1'], $rows[2]);
+        $this->assertSame(['3', '', '-42', '1999-12-31', 'IGAZ', "több\nsoros", '', '+36 1 234 5678'], $rows[4]);
+        $this->assertSame(['5', 'Szőlős', '1000000', '2026-11-10', 'HAMIS', 'utolsó', '007', '@mention'], $rows[6]);
+    }
+
+    public function test_carriage_return_line_endings_split_records_across_read_chunks(): void
+    {
+        $lines = ['id,name'];
+
+        for ($i = 1; $i <= 20_000; $i++) {
+            $lines[] = "{$i},\"Name\r{$i}\"";
+        }
+
+        $path = Fixtures::file(implode("\r", $lines)."\r", 'csv');
+        $rows = self::withoutPhpErrors(static fn (): array => iterator_to_array((new CsvReader($path, new ReadOptions))->rows()));
+
+        $this->assertCount(20_001, $rows);
+        $this->assertSame(['20000', "Name\n20000"], $rows[20_001]);
+    }
+
     public function test_utf8_bom_is_removed(): void
     {
         $rows = iterator_to_array((new CsvReader(Fixtures::committed('csv/utf8-bom-comma.csv'), new ReadOptions))->rows());

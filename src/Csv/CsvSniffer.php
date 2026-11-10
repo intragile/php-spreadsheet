@@ -15,6 +15,12 @@ final class CsvSniffer
 
     private const MAX_RECORDS = 20;
 
+    /** Bytes of the Hungarian accented letters (áéíóöőúüű and capitals) in Windows-1250. */
+    private const WINDOWS_1250_LETTERS = "\xC1\xC9\xCD\xD3\xD5\xD6\xDA\xDB\xDC\xE1\xE9\xED\xF3\xF5\xF6\xFA\xFB\xFC";
+
+    /** Bytes of the same letters in Mac OS Central European. */
+    private const MAC_CENTRAL_EUROPE_LETTERS = "\x83\x85\x86\x87\x8E\x92\x97\x9A\x9C\x9F\xCC\xCE\xE7\xEA\xEE\xF2\xF4\xF5";
+
     public function sniff(string $path, int $sampleBytes = 65_536): CsvDialect
     {
         $sample = is_file($path) && is_readable($path) ? @file_get_contents($path, false, null, 0, max(1, $sampleBytes)) : false;
@@ -26,7 +32,18 @@ final class CsvSniffer
         [$encoding, $bomLength] = $this->detectEncoding($sample);
         $text = $this->decode(substr($sample, $bomLength), $encoding);
 
-        return new CsvDialect($this->detectDelimiter($text), '"', $encoding, $bomLength);
+        return new CsvDialect($this->detectDelimiter($text), '"', $encoding, $bomLength, self::hasCarriageReturnLines($text));
+    }
+
+    /**
+     * Whether records end with a bare carriage return (classic Mac OS, Excel for Mac's "CSV Mac"):
+     * bare carriage returns outnumber line feeds, which then only occur inside quoted fields.
+     */
+    public static function hasCarriageReturnLines(string $text): bool
+    {
+        $bare = substr_count($text, "\r") - substr_count($text, "\r\n");
+
+        return $bare > 0 && $bare > substr_count($text, "\n");
     }
 
     /**
@@ -64,6 +81,12 @@ final class CsvSniffer
 
         if ($this->isUtf8($sample)) {
             return ['UTF-8', 0];
+        }
+
+        // Excel for Mac writes CSV in the Mac code page instead: the one in which more bytes are
+        // Hungarian accented letters wins.
+        if (self::letterCount($sample, self::MAC_CENTRAL_EUROPE_LETTERS) > self::letterCount($sample, self::WINDOWS_1250_LETTERS)) {
+            return ['MacCentralEurope', 0];
         }
 
         // Windows-1250 is what Excel writes on Hungarian systems. ISO-8859-2 cannot be told apart
@@ -117,6 +140,17 @@ final class CsvSniffer
         }
 
         return null;
+    }
+
+    private static function letterCount(string $sample, string $letters): int
+    {
+        $count = 0;
+
+        foreach (str_split($letters) as $letter) {
+            $count += substr_count($sample, $letter);
+        }
+
+        return $count;
     }
 
     private function isUtf8(string $sample): bool

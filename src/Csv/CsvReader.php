@@ -60,6 +60,7 @@ final class CsvReader implements Reader
             $options->csvEnclosure,
             $encoding,
             $bomLength,
+            $sniffed->carriageReturnLines,
         );
     }
 
@@ -146,6 +147,11 @@ final class CsvReader implements Reader
                 CsvDecoder::plan($this->dialect->encoding);
                 CsvDecoder::register();
                 self::appendFilter($handle, CsvDecoder::FILTER, $this->dialect->encoding);
+            }
+
+            if ($this->dialect->carriageReturnLines) {
+                CsvLineEndingFilter::register();
+                self::appendFilter($handle, CsvLineEndingFilter::FILTER, []);
             }
 
             CsvGuardFilter::register();

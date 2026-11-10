@@ -24,6 +24,14 @@ final class CsvDecoder
 
     private const SINGLE_BYTE = '/^(?:(?:windows|cp|ibm)-?(?:125[0-8]|437|737|775|85[0-8]|86[0-9]|874)|iso-?8859-?\d{1,2}|latin-?\d{1,2}|koi8-?[ru]|mac(?:roman|intosh)?|(?:us-?)?ascii)$/i';
 
+    private const MAC_CENTRAL_EUROPE_NAMES = '/^(?:x-?)?mac-?(?:central-?europe|ce|latin-?2)$|^cp-?10029$/i';
+
+    /**
+     * Characters of bytes 0x80-0xFF in Mac OS Central European (code page 10029), which Excel for
+     * Mac uses for CSV on Central European systems. Embedded because iconv does not know it everywhere.
+     */
+    private const MAC_CENTRAL_EUROPE = 'ÄĀāÉĄÖÜáąČäčĆćéŹźĎíďĒēĖóėôöõúĚěü†°Ę£§•¶ß®©™ę¨≠ģĮįĪ≤≥īĶ∂∑łĻļĽľĹĺŅņŃ¬√ńŇ∆«»… ňŐÕőŌ–—“”‘’÷◊ōŔŕŘ‹›řŖŗŠ‚„šŚśÁŤťÍŽžŪÓÔūŮÚůŰűŲųÝýķŻŁżĢˇ';
+
     /** @var array<string, array<string, string>> normalized encoding => byte => UTF-8 */
     private static array $tables = [];
 
@@ -49,6 +57,10 @@ final class CsvDecoder
             $name = str_ends_with($canonical, 'LE') || str_ends_with($canonical, 'BE') ? $canonical : $canonical.'BE';
 
             return ['table' => null, 'encoding' => $name, 'unit' => $unit];
+        }
+
+        if (preg_match(self::MAC_CENTRAL_EUROPE_NAMES, $upper) === 1) {
+            return ['table' => self::$tables['MACCENTRALEUROPE'] ??= self::macCentralEuropeTable(), 'encoding' => null, 'unit' => 1];
         }
 
         if (preg_match(self::SINGLE_BYTE, $upper) !== 1) {
@@ -133,6 +145,20 @@ final class CsvDecoder
     /**
      * @return array<string, string>
      */
+    private static function macCentralEuropeTable(): array
+    {
+        $table = [];
+
+        foreach (mb_str_split(self::MAC_CENTRAL_EUROPE, 1, 'UTF-8') as $offset => $char) {
+            $table[chr(0x80 + $offset)] = $char;
+        }
+
+        return $table;
+    }
+
+    /**
+     * @return array<string, string>
+     */
     private static function buildTable(string $encoding): array
     {
         $table = [];
@@ -163,7 +189,7 @@ final class CsvDecoder
     private static function unsupported(string $encoding): InvalidArgumentException
     {
         return new InvalidArgumentException(sprintf(
-            'Unsupported CSV encoding "%s"; use UTF-8, UTF-16, UTF-32 or a single-byte code page such as Windows-1250 or ISO-8859-2.',
+            'Unsupported CSV encoding "%s"; use UTF-8, UTF-16, UTF-32 or a single-byte code page such as Windows-1250, ISO-8859-2 or MacCentralEurope.',
             $encoding,
         ));
     }
