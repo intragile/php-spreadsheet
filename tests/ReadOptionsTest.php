@@ -36,28 +36,28 @@ final class ReadOptionsTest extends TestCase
     }
 
     /**
-     * @return iterable<string, array{array<string, int>}>
+     * @return iterable<string, array{string, callable(): ReadOptions}>
      */
     public static function invalidLimits(): iterable
     {
-        yield 'negative shared strings in memory' => [['sharedStringsInMemory' => -1]];
-        yield 'zero zip entries' => [['maxZipEntries' => 0]];
-        yield 'zero uncompressed bytes' => [['maxUncompressedBytes' => 0]];
-        yield 'zero compression ratio' => [['maxCompressionRatio' => 0]];
-        yield 'zero cell bytes' => [['maxCellBytes' => 0]];
-        yield 'negative cells' => [['maxCells' => -5]];
-        yield 'zero shared strings' => [['maxSharedStrings' => 0]];
+        yield 'negative shared strings in memory' => ['sharedStringsInMemory', static fn (): ReadOptions => new ReadOptions(sharedStringsInMemory: -1)];
+        yield 'zero zip entries' => ['maxZipEntries', static fn (): ReadOptions => new ReadOptions(maxZipEntries: 0)];
+        yield 'zero uncompressed bytes' => ['maxUncompressedBytes', static fn (): ReadOptions => new ReadOptions(maxUncompressedBytes: 0)];
+        yield 'zero compression ratio' => ['maxCompressionRatio', static fn (): ReadOptions => new ReadOptions(maxCompressionRatio: 0)];
+        yield 'zero cell bytes' => ['maxCellBytes', static fn (): ReadOptions => new ReadOptions(maxCellBytes: 0)];
+        yield 'negative cells' => ['maxCells', static fn (): ReadOptions => new ReadOptions(maxCells: -5)];
+        yield 'zero shared strings' => ['maxSharedStrings', static fn (): ReadOptions => new ReadOptions(maxSharedStrings: 0)];
     }
 
     /**
-     * @param  array<string, int>  $arguments
+     * @param  callable(): ReadOptions  $create
      */
     #[DataProvider('invalidLimits')]
-    public function test_limits_must_be_positive(array $arguments): void
+    public function test_limits_must_be_positive(string $name, callable $create): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage(array_key_first($arguments));
+        $this->expectExceptionMessage($name);
 
-        new ReadOptions(...$arguments);
+        $create();
     }
 }
