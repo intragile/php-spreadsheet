@@ -44,7 +44,7 @@ final class XlsxReader implements Reader
     /** Integers beyond ±2^53 lose precision as float, so they stay float to say so. */
     private const MAX_EXACT_INT = 9007199254740992;
 
-    /** Last row of Excel and LibreOffice; a row number beyond it is rejected. */
+    /** Last row of Excel and LibreOffice; a non-empty row beyond it is rejected. */
     private const MAX_ROWS = 1_048_576;
 
     /** Distinct date serials remembered per pass; real sheets repeat a limited set of days. */
@@ -347,8 +347,10 @@ final class XlsxReader implements Reader
                         $number = (int) $x->getAttribute('r');
                         $rowNumber = $number > 0 ? $number : $rowNumber + 1;
 
+                        // Rows past the last one are refused only if they hold a value, which is
+                        // known at </row>; the number is pinned so it cannot keep growing.
                         if ($rowNumber > self::MAX_ROWS) {
-                            throw new LimitExceeded(sprintf('The sheet has a row beyond row %d.', self::MAX_ROWS));
+                            $rowNumber = self::MAX_ROWS + 1;
                         }
 
                         $row = [];
@@ -364,6 +366,10 @@ final class XlsxReader implements Reader
                         }
 
                         if ($count > 0) {
+                            if ($rowNumber > self::MAX_ROWS) {
+                                throw new LimitExceeded(sprintf('A non-empty row lies beyond row %d.', self::MAX_ROWS));
+                            }
+
                             // Cells only ever append or overwrite an existing position.
                             /** @var list<int|float|string|bool|DateTimeImmutable|null> $row */
                             yield $rowNumber => $row;

@@ -239,6 +239,33 @@ final class XlsxReaderTest extends TestCase
         }
     }
 
+    public function test_empty_rows_beyond_the_spreadsheet_maximum_are_skipped(): void
+    {
+        $path = self::singleSheet('<row r="1"><c r="A1"><v>1</v></c></row>'
+            .'<row r="1048577" s="1" customFormat="1"/>'
+            .'<row r="2000000" ht="20" customHeight="1"><c r="A2000000" s="1"/><c r="B2000000" t="s"/><c r="C2000000"><v></v></c></row>'
+            .'<row><c t="inlineStr"><is><t></t></is></c></row>');
+
+        $this->assertSame([1 => [1]], iterator_to_array((new XlsxReader($path, new ReadOptions))->rows()));
+    }
+
+    public function test_non_empty_row_beyond_the_spreadsheet_maximum_names_the_limit(): void
+    {
+        $path = self::singleSheet('<row r="1048576"><c r="A1048576"><v>1</v></c></row><row r="1048577"/><row><c r="A1048578"><v>2</v></c></row>');
+        $rows = [];
+
+        try {
+            foreach ((new XlsxReader($path, new ReadOptions))->rows() as $number => $row) {
+                $rows[$number] = $row;
+            }
+
+            $this->fail('A non-empty row beyond the last row must throw.');
+        } catch (LimitExceeded $exception) {
+            $this->assertSame('A non-empty row lies beyond row 1048576.', $exception->getMessage());
+            $this->assertSame([1_048_576 => [1]], $rows);
+        }
+    }
+
     public function test_malformed_sheet_is_corrupt(): void
     {
         $path = Fixtures::zip([
