@@ -257,7 +257,8 @@ final class XlsxWriterTest extends TestCase
 
         $sheet = self::part($path, 'xl/worksheets/sheet1.xml');
 
-        $this->assertStringContainsString('<col min="1" max="1" width="30" customWidth="1"/>', $sheet);
+        // 30 characters plus the 5-pixel cell padding, so Excel's width dialog shows 30.
+        $this->assertStringContainsString('<col min="1" max="1" width="30.7109375" customWidth="1"/>', $sheet);
         $this->assertStringContainsString('<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/>', $sheet);
         $this->assertStringContainsString('<autoFilter ref="A1:C3"/>', $sheet);
         $this->assertLessThan(strpos($sheet, '<sheetData>'), strpos($sheet, '<cols>'));
@@ -747,6 +748,114 @@ final class XlsxWriterTest extends TestCase
         } finally {
             $reader->close();
         }
+    }
+
+    public function test_date_columns_are_widened_to_fit(): void
+    {
+        $path = Fixtures::path('xlsx');
+        (new XlsxWriter($path))
+            ->sheet('Data', new SheetOptions(columnWidths: [5 => 6]))
+            ->addRow(['name', 'date', 'stamp', 'named', 'narrow', 'number'])
+            ->addRow([
+                'a',
+                new DateTimeImmutable('2026-01-15'),
+                new DateTimeImmutable('2026-01-15 13:45:00'),
+                Cell::of(new DateTimeImmutable('2026-09-30'), Style::make()->numberFormat('mmmm d, yyyy')),
+                new DateTimeImmutable('2026-01-15'),
+                12,
+            ])
+            ->close();
+
+        $sheet = self::part($path, 'xl/worksheets/sheet1.xml');
+
+        // Dates get the width of their longest display; an explicit width always wins.
+        $this->assertSame([
+            [2, 2, '11.7109375'],
+            [3, 4, '20.7109375'],
+            [5, 5, '6.7109375'],
+        ], self::columns($sheet));
+        $rows = self::sheetRows($path);
+        $this->assertSame('a', $rows[2][0]);
+        $this->assertEquals(new DateTimeImmutable('2026-01-15'), $rows[2][1]);
+    }
+
+    public function test_neighbouring_date_columns_share_one_col_element(): void
+    {
+        $path = Fixtures::path('xlsx');
+        (new XlsxWriter($path))
+            ->addRow([new DateTimeImmutable('2026-01-15'), new DateTimeImmutable('2026-01-16'), 'x', new DateTimeImmutable('2026-01-17')])
+            ->close();
+
+        $this->assertSame([[1, 2, '11.7109375'], [4, 4, '11.7109375']], self::columns(self::part($path, 'xl/worksheets/sheet1.xml')));
+    }
+
+    public function test_sheet_without_widths_or_dates_has_no_cols(): void
+    {
+        $path = Fixtures::path('xlsx');
+        (new XlsxWriter($path))->addRow(['a', 1, true])->close();
+
+        $sheet = self::part($path, 'xl/worksheets/sheet1.xml');
+
+        $this->assertStringNotContainsString('<cols>', $sheet);
+        $this->assertWellFormedXml($sheet);
+    }
+
+    public function test_many_date_columns_overflow_the_reserved_room(): void
+    {
+        // Alternating widths cannot merge, so the cols element outgrows the space reserved for it
+        // and the sheet file is rewritten.
+        $row = [];
+
+        for ($column = 0; $column < 400; $column++) {
+            $row[] = $column % 2 === 0 ? new DateTimeImmutable('2026-01-15') : new DateTimeImmutable('2026-01-15 10:00:00');
+        }
+
+        $path = Fixtures::path('xlsx');
+        (new XlsxWriter($path))
+            ->sheet('First')->addRow($row)->addRow(['tail'])
+            ->sheet('Second')->addRow([new DateTimeImmutable('2026-01-15')])
+            ->close();
+
+        $first = self::part($path, 'xl/worksheets/sheet1.xml');
+        $this->assertWellFormedXml($first);
+        $columns = self::columns($first);
+        $this->assertCount(400, $columns);
+        $this->assertSame([400, 400, '20.7109375'], $columns[399]);
+        $this->assertSame([[1, 1, '11.7109375']], self::columns(self::part($path, 'xl/worksheets/sheet2.xml')));
+
+        $rows = self::sheetRows($path);
+        $this->assertCount(400, $rows[1]);
+        $this->assertSame(['tail'], $rows[2]);
+    }
+
+    /**
+     * @return list<array{int, int, string}> min, max and width of every col element
+     */
+    private static function columns(string $sheet): array
+    {
+        preg_match_all('/<col min="(\d+)" max="(\d+)" width="([^"]+)" customWidth="1"\/>/', $sheet, $matches, PREG_SET_ORDER);
+
+        return array_map(static fn (array $match): array => [(int) $match[1], (int) $match[2], $match[3]], $matches);
+    }
+
+    /**
+     * @return array<int, array<int, mixed>>
+     */
+    private static function sheetRows(string $path): array
+    {
+        $reader = new XlsxReader($path, new ReadOptions);
+
+        try {
+            return iterator_to_array($reader->rows(0));
+        } finally {
+            $reader->close();
+        }
+    }
+
+    private function assertWellFormedXml(string $xml): void
+    {
+        $document = new DOMDocument;
+        $this->assertTrue(@$document->loadXML($xml), 'The sheet XML is not well-formed.');
     }
 
     private static function part(string $path, string $name): string

@@ -388,21 +388,8 @@ final class OdsWriterTest extends TestCase
             ->sheet('Plain')->addRow(['x'])
             ->close();
 
-        $content = self::xpath(self::part($path, 'content.xml'));
-        $columns = $content->query('//table:table[@table:name="Data"]/table:table-column');
-        $this->assertNotFalse($columns);
-        $layout = [];
-
-        foreach ($columns as $column) {
-            $this->assertInstanceOf(DOMElement::class, $column);
-            $name = $column->getAttributeNS(self::NS['table'], 'style-name');
-            $repeat = $column->getAttributeNS(self::NS['table'], 'number-columns-repeated');
-            $width = $name === '' ? '-' : self::first($content, '//style:style[@style:name="'.$name.'"]/style:table-column-properties')->getAttributeNS(self::NS['style'], 'column-width');
-            $layout[] = ($repeat === '' ? '1' : $repeat).'x'.$width;
-        }
-
         // Columns 1, 3 and 5 keep the default width; 2 and 4 are set (30 and 12.5 characters).
-        $this->assertSame(['1x-', '1x5.689cm', '1x-', '1x2.447cm', '1x-'], $layout);
+        $this->assertSame(['1x-', '1x5.689cm', '1x-', '1x2.447cm', '1x-'], self::columnLayout($path, 'Data'));
 
         $settings = self::xpath(self::part($path, 'settings.xml'));
         $entry = self::first($settings, '//config:config-item-map-named[@config:name="Tables"]/config:config-item-map-entry[@config:name="Data"]');
@@ -878,6 +865,29 @@ final class OdsWriterTest extends TestCase
         $this->assertSame('urn:oasis:names:tc:opendocument:xmlns:of:1.2', $document->documentElement->lookupNamespaceURI('of'));
     }
 
+    public function test_date_columns_are_widened_to_fit(): void
+    {
+        $path = Fixtures::path('ods');
+        (new OdsWriter($path))
+            ->sheet('Data', new SheetOptions(columnWidths: [5 => 6]))
+            ->addRow(['name', 'date', 'stamp', 'named', 'narrow', 'number'])
+            ->addRow([
+                'a',
+                new DateTimeImmutable('2026-01-15'),
+                new DateTimeImmutable('2026-01-15 13:45:00'),
+                Cell::of(new DateTimeImmutable('2026-09-30'), Style::make()->numberFormat('mmmm d, yyyy')),
+                new DateTimeImmutable('2026-01-15'),
+                12,
+            ])
+            ->sheet('Plain')->addRow([new DateTimeImmutable('2026-01-15'), Cell::of(new DateTimeImmutable('2026-01-15'), Style::make()->numberFormat('0.00'))])
+            ->close();
+
+        // 11 characters for a date, 20 for a date-time or a long month name; an explicit width wins.
+        $this->assertSame(['1x-', '1x2.17cm', '1x3.836cm', '1x3.836cm', '1x1.244cm', '1x-'], self::columnLayout($path, 'Data'));
+        // A number format on a date falls back to the default date format, and so does its width.
+        $this->assertSame(['1x2.17cm', '1x2.17cm'], self::columnLayout($path, 'Plain'));
+    }
+
     public function test_settings_namespace_prefix_is_declared(): void
     {
         // LibreOffice resolves "ooo:view-settings" as a qualified name and ignores the view
@@ -973,6 +983,29 @@ final class OdsWriterTest extends TestCase
         } finally {
             $reader->close();
         }
+    }
+
+    /**
+     * Every table:table-column of a sheet as "<repeat>x<width>", "-" standing for the default width.
+     *
+     * @return list<string>
+     */
+    private static function columnLayout(string $path, string $sheet): array
+    {
+        $content = self::xpath(self::part($path, 'content.xml'));
+        $columns = $content->query('//table:table[@table:name="'.$sheet.'"]/table:table-column');
+        self::assertNotFalse($columns);
+        $layout = [];
+
+        foreach ($columns as $column) {
+            self::assertInstanceOf(DOMElement::class, $column);
+            $name = $column->getAttributeNS(self::NS['table'], 'style-name');
+            $repeat = $column->getAttributeNS(self::NS['table'], 'number-columns-repeated');
+            $width = $name === '' ? '-' : self::first($content, '//style:style[@style:name="'.$name.'"]/style:table-column-properties')->getAttributeNS(self::NS['style'], 'column-width');
+            $layout[] = ($repeat === '' ? '1' : $repeat).'x'.$width;
+        }
+
+        return $layout;
     }
 
     private static function part(string $path, string $name): string

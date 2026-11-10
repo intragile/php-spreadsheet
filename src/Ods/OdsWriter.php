@@ -8,12 +8,14 @@ use DateTimeInterface;
 use IntrAgile\Spreadsheet\Cell;
 use IntrAgile\Spreadsheet\Contracts\Writer;
 use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
+use IntrAgile\Spreadsheet\Internal\ColumnWidth;
 use IntrAgile\Spreadsheet\Internal\NumberText;
 use IntrAgile\Spreadsheet\Internal\SheetName;
 use IntrAgile\Spreadsheet\Internal\TempFile;
 use IntrAgile\Spreadsheet\Internal\Xml\XmlEscaper;
 use IntrAgile\Spreadsheet\SheetOptions;
 use IntrAgile\Spreadsheet\Style;
+use IntrAgile\Spreadsheet\Xlsx\NumberFormats;
 use InvalidArgumentException;
 use LogicException;
 use RuntimeException;
@@ -58,6 +60,9 @@ final class OdsWriter implements Writer
      */
     private const NEEDS_ENCODING = '/[\x00-\x1F&<>\x{FFFE}\x{FFFF}]|  |^ | $/u';
 
+    /** Excel's default column width in characters; narrower date columns are left alone. */
+    private const DEFAULT_COLUMN_WIDTH = 8.43;
+
     private const DOCUMENT_NAMESPACES = 'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
         .'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
         .'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
@@ -77,7 +82,7 @@ final class OdsWriter implements Writer
     /** @var list<string> temporary file of every sheet, in workbook order */
     private array $sheetPaths = [];
 
-    /** @var list<array{name: string, options: ?SheetOptions, rows: int, columns: int, firstRowWidth: int}> */
+    /** @var list<array{name: string, options: ?SheetOptions, rows: int, columns: int, firstRowWidth: int, dateWidths: array<int, float>}> */
     private array $sheets = [];
 
     /** @var array<string, true> lowercased sheet names */
@@ -94,6 +99,12 @@ final class OdsWriter implements Writer
     private int $columns = 0;
 
     private int $firstRowWidth = 0;
+
+    /** @var array<int, float> 1-based column => characters its widest date needs */
+    private array $dateWidths = [];
+
+    /** @var array<string, float> date style name => characters a date in that style needs */
+    private array $dateWidthByStyle = [];
 
     private bool $closed = false;
 
@@ -214,7 +225,7 @@ final class OdsWriter implements Writer
                 } elseif (is_bool($value)) {
                     $xml .= '<table:table-cell'.$attribute.' office:value-type="boolean" office:boolean-value="'.($value ? 'true' : 'false').'"><text:p>'.($value ? 'TRUE' : 'FALSE').'</text:p></table:table-cell>';
                 } elseif ($value instanceof DateTimeInterface) {
-                    $xml .= $this->date($value, $style);
+                    $xml .= $this->date($column, $value, $style);
                 } else {
                     throw new InvalidArgumentException(sprintf('Unsupported cell value of type %s in column %d of row %d.', get_debug_type($value), $column, $r));
                 }
@@ -301,11 +312,12 @@ final class OdsWriter implements Writer
         }
 
         $this->handle = $handle;
-        $this->sheets[] = ['name' => $name, 'options' => $options, 'rows' => 0, 'columns' => 0, 'firstRowWidth' => 0];
+        $this->sheets[] = ['name' => $name, 'options' => $options, 'rows' => 0, 'columns' => 0, 'firstRowWidth' => 0, 'dateWidths' => []];
         $this->sheetNames[mb_strtolower($name, 'UTF-8')] = true;
         $this->rowNumber = 0;
         $this->columns = 0;
         $this->firstRowWidth = 0;
+        $this->dateWidths = [];
         $this->buffer = '';
     }
 
@@ -327,6 +339,7 @@ final class OdsWriter implements Writer
         $sheet['rows'] = $this->rowNumber;
         $sheet['columns'] = $this->columns;
         $sheet['firstRowWidth'] = $this->firstRowWidth;
+        $sheet['dateWidths'] = $this->dateWidths;
         $this->sheets[$last] = $sheet;
 
         if (! fclose($handle)) {
@@ -357,7 +370,7 @@ final class OdsWriter implements Writer
         $tables = [];
 
         foreach ($this->sheets as $sheet) {
-            $tables[] = self::columns($sheet['options']->columnWidths ?? [], $sheet['columns'], $columnStyles);
+            $tables[] = self::columns(self::widths($sheet['options']->columnWidths ?? [], $sheet['dateWidths']), $sheet['columns'], $columnStyles);
         }
 
         $this->contentPath = TempFile::create('sps_ods_', dirname($this->path));
@@ -576,6 +589,25 @@ final class OdsWriter implements Writer
         return $xml === '' ? '<table:table-column/>' : $xml;
     }
 
+    /**
+     * Explicit widths, plus a width that fits for every other column holding a date wider than
+     * Excel's default column.
+     *
+     * @param  array<int, float>  $explicit  1-based column => width in characters
+     * @param  array<int, float>  $dates  1-based column => characters its widest date needs
+     * @return array<int, float>
+     */
+    private static function widths(array $explicit, array $dates): array
+    {
+        foreach ($dates as $column => $characters) {
+            if ($characters > self::DEFAULT_COLUMN_WIDTH && ! isset($explicit[$column])) {
+                $explicit[$column] = $characters;
+            }
+        }
+
+        return $explicit;
+    }
+
     private static function defaultColumns(int $count): string
     {
         return match (true) {
@@ -594,12 +626,30 @@ final class OdsWriter implements Writer
         return ' table:style-name="'.$this->styles->nameFor($style).'"';
     }
 
-    private function date(DateTimeInterface $value, ?Style $style): string
+    /**
+     * Records the width the date needs in its column.
+     *
+     * @param  int  $column  1-based column
+     */
+    private function date(int $column, DateTimeInterface $value, ?Style $style): string
     {
         // Wall-clock time as written; the format has no time zone.
         $iso = $value->format('Y-m-d\TH:i:s');
         $hasTime = ! str_ends_with($iso, 'T00:00:00');
         $name = $this->styles->nameFor($style, true, $hasTime);
+        if (! isset($this->dateWidthByStyle[$name])) {
+            // The style registry falls back to the default format for a code that is not a date.
+            $code = $style?->getNumberFormat();
+            $this->dateWidthByStyle[$name] = ColumnWidth::forDateFormat($code !== null && NumberFormats::isDate($code)
+                ? $code
+                : ($hasTime ? OdsStyleRegistry::DATE_TIME_FORMAT : OdsStyleRegistry::DATE_FORMAT));
+        }
+
+        $characters = $this->dateWidthByStyle[$name];
+
+        if (($this->dateWidths[$column] ?? 0.0) < $characters) {
+            $this->dateWidths[$column] = $characters;
+        }
 
         return '<table:table-cell table:style-name="'.$name.'" office:value-type="date" office:date-value="'
             .($hasTime ? $iso : substr($iso, 0, 10)).'"/>';
