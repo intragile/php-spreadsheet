@@ -90,9 +90,19 @@ $reader = Spreadsheet::read(
 Hiányzó vagy olvashatatlan fájlnál minden formátum `SpreadsheetException` kivételt ad, akkor is, ha
 közvetlenül egy olvasóosztályt használunk. Üres (0 bájtos) fájlnál `UnsupportedFormat` keletkezik;
 `Format::Csv` megadásával üres CSV-ként olvasható. A zip-archívumként kezdődő, de meg nem nyitható
-(például csonkán feltöltött) fájl `CorruptFile` kivételt ad. Az `.xls`, `.xlsb`, a jelszóval védett
+(például csonkán feltöltött) fájl `CorruptFile` kivételt ad. Az `.xlsb`, a jelszóval védett
 Office-fájl, a Numbers és a PDF `UnsupportedFormat` kivételt ad, az üzenet megnevezi a típust. A NUL
 bájt nélküli rövid bináris fájl nem különböztethető meg a szövegtől, ezért CSV-ként olvasódik.
+
+### Régi XLS-fájlok olvasása
+
+A bináris `.xls` munkafüzeteket a tartalmuk alapján ismeri fel a könyvtár (`Format::Xls`), és az opcionális
+[phpoffice/phpspreadsheet](https://github.com/PHPOffice/PhpSpreadsheet) csomaggal olvassa
+(`composer require phpoffice/phpspreadsheet`; nélküle az XLS olvasása `UnsupportedFormat` kivételt ad). A sorok,
+a munkalap-kiválasztás, a `rowsWithHeader()` és az értéktípusok a többi formátummal egyezően működnek, az 1904-es
+dátumrendszert is beleértve. Ezzel szemben az **XLS-olvasás nem folyamatos**: a teljes munkafüzet a memóriába
+kerül. A munkalapok méretét előbb olvassa ki, és az a munkafüzet, amelynek lapjain több cella van a `maxCells`
+értéknél, a betöltés előtt `LimitExceeded` kivételt kap. XLS-fájl nem írható.
 
 ## Írás
 

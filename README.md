@@ -86,9 +86,19 @@ $reader = Spreadsheet::read(
 A missing or unreadable file throws `SpreadsheetException` for every format, also when a reader
 class is used directly. An empty (0-byte) file throws `UnsupportedFormat`; pass `Format::Csv` to read
 it as an empty CSV. A file that starts like a zip archive but cannot be opened (a truncated upload)
-throws `CorruptFile`. `.xls`, `.xlsb`, password-protected Office files, Numbers and PDF files throw
+throws `CorruptFile`. `.xlsb`, password-protected Office files, other OLE2 documents, Numbers and PDF files throw
 `UnsupportedFormat` with a message naming them. A short binary file without NUL bytes cannot be told
 apart from text and is read as CSV.
+
+### Reading legacy XLS
+
+Binary `.xls` workbooks are detected from their content (`Format::Xls`) and read through the optional
+[phpoffice/phpspreadsheet](https://github.com/PHPOffice/PhpSpreadsheet) package (`composer require phpoffice/phpspreadsheet`;
+without it, reading an XLS file throws `UnsupportedFormat`). Rows, sheet selection, `rowsWithHeader()` and
+the value types work as for the other formats, including the 1904 date system. Unlike them, **XLS reading is
+not streaming**: the whole workbook is loaded into memory. The sheet dimensions are read first, and a
+workbook whose sheets hold more cells than `maxCells` is rejected with `LimitExceeded` before anything is
+loaded. XLS files cannot be written.
 
 ## Writing
 

@@ -13,6 +13,7 @@ use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
 use IntrAgile\Spreadsheet\Exception\UnsupportedFormat;
 use IntrAgile\Spreadsheet\Ods\OdsReader;
 use IntrAgile\Spreadsheet\Ods\OdsWriter;
+use IntrAgile\Spreadsheet\Xls\XlsReader;
 use IntrAgile\Spreadsheet\Xlsx\XlsxReader;
 use IntrAgile\Spreadsheet\Xlsx\XlsxWriter;
 
@@ -41,6 +42,7 @@ final class Spreadsheet
             Format::Xlsx => new XlsxReader($path, $options),
             Format::Ods => new OdsReader($path, $options),
             Format::Csv => new CsvReader($path, $options),
+            Format::Xls => new XlsReader($path, $options),
         };
     }
 
@@ -57,6 +59,7 @@ final class Spreadsheet
             Format::Xlsx => new XlsxWriter($path),
             Format::Ods => new OdsWriter($path),
             Format::Csv => new CsvWriter($path),
+            Format::Xls => throw new UnsupportedFormat('XLS writing is not supported; write xlsx, ods or csv instead.'),
         };
     }
 

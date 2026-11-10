@@ -12,4 +12,7 @@ enum Format: string
     case Xlsx = 'xlsx';
     case Ods = 'ods';
     case Csv = 'csv';
+
+    /** Legacy binary Excel; read-only, through the optional phpoffice/phpspreadsheet package. */
+    case Xls = 'xls';
 }

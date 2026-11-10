@@ -38,11 +38,12 @@
     },
     "require-dev": {
         "laravel/pint": "^1.0",
+        "phpoffice/phpspreadsheet": "^5.0",
         "phpstan/phpstan": "^2.0",
         "phpunit/phpunit": "^11.5|^12.0"
     },
     "suggest": {
-        "phpoffice/phpspreadsheet": "Needed for reading legacy XLS files."
+        "phpoffice/phpspreadsheet": "Needed for reading legacy XLS files (not streaming: the whole workbook is loaded)."
     },
     "autoload": {
         "psr-4": {

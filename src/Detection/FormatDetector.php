@@ -31,6 +31,13 @@ final class FormatDetector
     /** How far into an OLE2 file to look for the stream names of an encrypted Office package. */
     private const OLE2_PROBE_BYTES = 65_536;
 
+    /** Read size, overlap (longer than any searched name) and ceiling when looking for a workbook stream. */
+    private const OLE2_SCAN_CHUNK = 65_536;
+
+    private const OLE2_SCAN_OVERLAP = 32;
+
+    private const OLE2_SCAN_LIMIT = 67_108_864;
+
     /** Main part content type of a binary workbook (xlsb). */
     private const XLSB_MAIN_TYPE = 'application/vnd.ms-excel.sheet.binary.macroEnabled.main';
 
@@ -57,9 +64,15 @@ final class FormatDetector
         }
 
         if (str_starts_with($head, self::OLE2_SIGNATURE)) {
-            throw new UnsupportedFormat(self::isEncryptedOfficePackage($path)
-                ? 'Unsupported format: password-protected Office file (an encrypted xlsx or similar); remove the password and try again.'
-                : 'Unsupported format: legacy binary Excel (xls), a password-protected Office file, or another OLE2 document.');
+            if (self::isEncryptedOfficePackage($path)) {
+                throw new UnsupportedFormat('Unsupported format: password-protected Office file (an encrypted xlsx or similar); remove the password and try again.');
+            }
+
+            if (self::hasWorkbookStream($path)) {
+                return Format::Xls;
+            }
+
+            throw new UnsupportedFormat('Unsupported format: legacy binary Excel (xls), a password-protected Office file, or another OLE2 document.');
         }
 
         if (str_starts_with($head, "PK\x03\x04") || str_starts_with($head, "PK\x05\x06")) {
@@ -132,6 +145,52 @@ final class FormatDetector
         $probe = @file_get_contents($path, false, null, 0, self::OLE2_PROBE_BYTES);
 
         return is_string($probe) && str_contains($probe, mb_convert_encoding('EncryptedPackage', 'UTF-16LE', 'UTF-8'));
+    }
+
+    /**
+     * A binary Excel workbook keeps its data in a "Workbook" stream (BIFF8) or a "Book" stream
+     * (BIFF5). Directory entry names are UTF-16LE and NUL-terminated; the directory may sit
+     * anywhere in the file, so the file is scanned in chunks up to a ceiling.
+     */
+    private static function hasWorkbookStream(string $path): bool
+    {
+        $handle = @fopen($path, 'rb');
+
+        if ($handle === false) {
+            return false;
+        }
+
+        $needles = [
+            "W\0o\0r\0k\0b\0o\0o\0k\0\0\0",
+            "B\0o\0o\0k\0\0\0",
+        ];
+        $carry = '';
+        $scanned = 0;
+
+        try {
+            while (! feof($handle) && $scanned < self::OLE2_SCAN_LIMIT) {
+                $chunk = fread($handle, self::OLE2_SCAN_CHUNK);
+
+                if ($chunk === false || $chunk === '') {
+                    break;
+                }
+
+                $scanned += strlen($chunk);
+                $window = $carry.$chunk;
+
+                foreach ($needles as $needle) {
+                    if (str_contains($window, $needle)) {
+                        return true;
+                    }
+                }
+
+                $carry = substr($window, -self::OLE2_SCAN_OVERLAP);
+            }
+        } finally {
+            fclose($handle);
+        }
+
+        return false;
     }
 
     private static function looksLikeText(string $head): bool

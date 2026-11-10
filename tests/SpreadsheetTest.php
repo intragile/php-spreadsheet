@@ -74,6 +74,21 @@ final class SpreadsheetTest extends TestCase
         Spreadsheet::write(Fixtures::path('foo'));
     }
 
+    public function test_write_xls_format_throws(): void
+    {
+        $this->expectException(UnsupportedFormat::class);
+        $this->expectExceptionMessage('XLS writing is not supported');
+
+        Spreadsheet::write(Fixtures::path('bin'), Format::Xls);
+    }
+
+    public function test_read_dispatches_xls(): void
+    {
+        $rows = iterator_to_array(Spreadsheet::read(Fixtures::committed('xls/mixed.xls'))->rows());
+
+        $this->assertSame('text', $rows[2][2]);
+    }
+
     public function test_xlsm_is_not_written_as_it_would_lack_macros(): void
     {
         $this->expectException(UnsupportedFormat::class);

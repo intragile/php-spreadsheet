@@ -14,6 +14,7 @@ First stable release: streaming XLSX, ODS and CSV reading and writing with bound
 
 ### Added
 
+- Optional XLS reading through phpoffice/phpspreadsheet (`Format::Xls`); not streaming, cell limit checked before loading.
 - Package scaffold with a hardened zip and XML reading layer.
 - `Spreadsheet::read()` and `Spreadsheet::write()` entry points with content-based format
   detection and extension-based writer selection.

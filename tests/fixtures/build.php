@@ -1,11 +1,18 @@
 <?php
 
 declare(strict_types=1);
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
+use PhpOffice\PhpSpreadsheet\Shared\Date;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xls;
 
 /**
  * Regenerates the committed fixtures: php tests/fixtures/build.php
  *
- * Plain PHP and ZipArchive only, so the output is reproducible on any machine.
+ * Plain PHP and ZipArchive only, so the output is reproducible on any machine; the xls fixtures
+ * additionally need phpoffice/phpspreadsheet (a dev dependency).
  */
 const FIXTURES = __DIR__;
 
@@ -94,6 +101,92 @@ function build_detect_xls(): void
 {
     // OLE2 compound file signature followed by padding; enough for content sniffing.
     file_put_contents(FIXTURES.'/detect/legacy.xls', "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1".str_repeat("\0", 504));
+}
+
+function build_detect_word_doc(): void
+{
+    $free = pack('V', 0xFFFFFFFF);
+    $end = pack('V', 0xFFFFFFFE);
+    $dataSectors = 8;
+
+    $header = "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1".str_repeat("\0", 16)
+        .pack('vvvvv', 0x003E, 3, 0xFFFE, 9, 6).str_repeat("\0", 6)
+        .pack('VVVVVVVVV', 0, 1, 1, 0, 4096, 0xFFFFFFFE, 0, 0xFFFFFFFE, 0)
+        .pack('V', 0).str_repeat($free, 108);
+
+    // Sector 0 is the FAT, sector 1 the directory, sectors 2..9 the stream chain.
+    $fat = pack('V', 0xFFFFFFFD).$end;
+
+    for ($sector = 2; $sector < 2 + $dataSectors; $sector++) {
+        $fat .= $sector === 1 + $dataSectors ? $end : pack('V', $sector + 1);
+    }
+
+    $fat = str_pad($fat, 512, $free);
+
+    $entry = static fn (string $name, int $type, int $child, int $start, int $size): string => str_pad(mb_convert_encoding($name, 'UTF-16LE', 'UTF-8')."\0\0", 64, "\0")
+        .pack('vCC', $name === '' ? 0 : (mb_strlen($name) + 1) * 2, $type, 1)
+        .$free.$free.pack('V', $child).str_repeat("\0", 16 + 4 + 16)
+        .pack('VVV', $start, $size, 0);
+
+    $unused = str_repeat("\0", 66).$free.$free.$free.str_repeat("\0", 36).str_repeat("\0", 12);
+
+    $directory = $entry('Root Entry', 5, 1, 0xFFFFFFFE, 0)
+        .$entry('WordDocument', 2, 0xFFFFFFFF, 2, 4096)
+        .$unused.$unused;
+
+    file_put_contents(
+        FIXTURES.'/detect/word.doc',
+        $header.$fat.str_pad($directory, 512, "\0").str_repeat("\0", 512 * $dataSectors),
+    );
+}
+
+function build_xls_workbooks(): void
+{
+    require_once dirname(__DIR__, 2).'/vendor/autoload.php';
+
+    $write = static function (Spreadsheet $workbook, string $name): void {
+        (new Xls($workbook))->save(FIXTURES.'/xls/'.$name);
+        $workbook->disconnectWorksheets();
+    };
+    $dateFormat = NumberFormat::FORMAT_DATE_YYYYMMDD;
+    $text = DataType::TYPE_STRING;
+
+    // Row 1 headers, row 2 typed values, row 3 empty, row 4 formula and a trailing text cell.
+    $mixed = new Spreadsheet;
+    $sheet = $mixed->getActiveSheet()->setTitle('Data');
+    $sheet->fromArray(['id', 'ratio', 'name', 'flag', 'day', 'note', 'code'], null, 'A1');
+    $sheet->setCellValue('A2', 1);
+    $sheet->setCellValue('B2', 1.5);
+    $sheet->setCellValue('C2', 'text');
+    $sheet->setCellValue('D2', true);
+    $sheet->setCellValue('E2', Date::PHPToExcel(new DateTimeImmutable('2026-09-14 00:00:00', new DateTimeZone('UTC'))));
+    $sheet->getStyle('E2')->getNumberFormat()->setFormatCode($dateFormat);
+    $sheet->setCellValueExplicit('G2', '00123', $text);
+    $sheet->setCellValue('A4', 2);
+    $sheet->setCellValue('B4', '=A4*2');
+    $sheet->setCellValue('C4', 'tail');
+    $write($mixed, 'mixed.xls');
+
+    $multi = new Spreadsheet;
+    $multi->getActiveSheet()->setTitle('First')->fromArray([['a', 'b'], [1, 2]], null, 'A1');
+    $multi->createSheet()->setTitle('Second')->fromArray([['x'], ['y']], null, 'A1');
+    $hidden = $multi->createSheet()->setTitle('Hidden');
+    $hidden->setCellValue('A1', 'secret');
+    $hidden->setSheetState(Worksheet::SHEETSTATE_HIDDEN);
+    $write($multi, 'multi-sheet.xls');
+
+    $mac = new Spreadsheet;
+    $mac->setExcelCalendar(Date::CALENDAR_MAC_1904);
+    Date::setExcelCalendar(Date::CALENDAR_MAC_1904);
+    $macSheet = $mac->getActiveSheet();
+    $macSheet->setCellValue('A1', Date::PHPToExcel(new DateTimeImmutable('2026-09-14 00:00:00', new DateTimeZone('UTC'))));
+    Date::setExcelCalendar(Date::CALENDAR_WINDOWS_1900);
+    $macSheet->getStyle('A1')->getNumberFormat()->setFormatCode($dateFormat);
+    $write($mac, 'date1904.xls');
+
+    $grid = new Spreadsheet;
+    $grid->getActiveSheet()->fromArray(array_fill(0, 5, [1, 2, 3, 4, 5]), null, 'A1');
+    $write($grid, 'grid-5x5.xls');
 }
 
 function build_detect_numbers(): void
@@ -739,6 +832,7 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     build_detect_ods();
     build_detect_csv();
     build_detect_xls();
+    build_detect_word_doc();
     build_detect_numbers();
 
     if (! is_dir(FIXTURES.'/csv')) {
@@ -769,6 +863,12 @@ if (realpath($_SERVER['SCRIPT_FILENAME'] ?? '') === __FILE__) {
     build_ods_libreoffice_mixed();
     build_ods_repeated();
     build_ods_multi_sheet();
+
+    if (! is_dir(FIXTURES.'/xls')) {
+        mkdir(FIXTURES.'/xls', 0777, true);
+    }
+
+    build_xls_workbooks();
 
     echo 'Fixtures written to '.FIXTURES."\n";
 }

@@ -24,6 +24,31 @@ final class FormatDetectorTest extends TestCase
         }
     }
 
+    public function test_detects_xls_by_workbook_stream(): void
+    {
+        $this->assertSame(Format::Xls, FormatDetector::detect(Fixtures::committed('xls/mixed.xls')));
+        $this->assertSame(Format::Xls, FormatDetector::detect(Fixtures::committed('xls/date1904.xls')));
+    }
+
+    public function test_ole2_without_workbook_stays_unsupported(): void
+    {
+        $this->expectException(UnsupportedFormat::class);
+        $this->expectExceptionMessage('legacy binary Excel (xls), a password-protected Office file, or another OLE2 document');
+
+        FormatDetector::detect(Fixtures::committed('detect/word.doc'));
+    }
+
+    public function test_workbook_name_beyond_a_chunk_boundary_is_found(): void
+    {
+        $name = mb_convert_encoding('Workbook', 'UTF-16LE', 'UTF-8')."\0\0";
+
+        foreach ([65_536 - 9, 65_536 - 1, 65_536 * 2 - 17, 200_000] as $offset) {
+            $bytes = "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1".str_repeat("\1", $offset - 8).$name.str_repeat("\1", 100);
+
+            $this->assertSame(Format::Xls, FormatDetector::detect(Fixtures::file($bytes)), (string) $offset);
+        }
+    }
+
     public function test_xls_and_numbers_throw_unsupported_format(): void
     {
         foreach (['legacy.xls' => 'xls', 'sample.numbers' => 'numbers'] as $name => $kind) {
