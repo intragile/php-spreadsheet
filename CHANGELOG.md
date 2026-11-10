@@ -20,6 +20,8 @@ All notable changes to this project are documented here. The format follows
 - `CsvWriter` option `escapeFormulas` (off by default) against CSV injection: string values starting
   with `=`, `+`, `-`, `@`, tab or carriage return get a leading apostrophe.
 - Benchmark scenario R1S: reading an XLSX file with shared strings built by a neutral generator.
+- CSV: UTF-16 and UTF-32 are detected without a byte-order mark, UTF-32 marks are recognised, and
+  Excel for Mac exports are read (Mac Central European code page, bare carriage-return line endings).
 
 ### Changed
 
@@ -32,6 +34,19 @@ All notable changes to this project are documented here. The format follows
 - Frozen XLSX panes are written in Excel's own form (`activePane` plus a `selection`); ODS number and
   boolean cells carry a `text:p` display copy.
 - Resuming a CSV row generator after `close()` throws `LogicException`, as for XLSX and ODS.
+- `ReadOptions` is a readonly class: limits cannot be changed after validation.
+- A missing or unreadable path throws `SpreadsheetException` from every reader (the zip readers
+  used to say `CorruptFile`); a 0-byte file throws `UnsupportedFormat`; a truncated zip throws
+  `CorruptFile`; `.xlsb` and password-protected Office files are named in the `UnsupportedFormat`
+  message.
+- Writers: `close()` after an aborted write throws `LogicException` instead of returning without a
+  file; floats are written in the shortest round-trip form independent of `serialize_precision`, and
+  `-0.0` as `0`; sheet names with characters XML cannot hold are rejected.
+- XLSX: empty rows beyond row 1,048,576 are skipped; only a non-empty one raises `LimitExceeded`
+  ("A non-empty row lies beyond row 1048576.", as for ODS).
+- ODS: a repeat count longer than 12 digits on content raises `LimitExceeded` instead of
+  `CorruptFile`; number formats such as `0.##` keep their optional decimals optional
+  (`number:min-decimal-places`).
 
 ### Fixed
 
@@ -41,6 +56,11 @@ All notable changes to this project are documented here. The format follows
 - XLSX shared strings spilled to disk no longer keep an 8-byte offset per entry in memory; the
   offsets live in a fixed-width temporary file.
 - ISO 8601 date values with a trailing newline are no longer accepted.
+- A `csvEncoding` without byte order (`UTF-16`, `UCS-2`, `UTF-32`, `UCS-4`) on a file with a
+  byte-order mark decoded little-endian files to garbage; the mark now decides the byte order.
+- XLSX formula string results (`t="str"`) decode `_xHHHH_` escapes like other strings.
+- Closing one XML reader no longer discards libxml errors still owed to another open reader.
+- ODS spaces next to tabs are written as `text:s`, so whitespace collapsing cannot drop them.
 
 ### Security
 
@@ -54,6 +74,9 @@ All notable changes to this project are documented here. The format follows
 - XLSX and ODS: at most 4,096 sheets.
 - CSV: a field longer than `maxCellBytes` (such as the rest of the file after a stray quote) or a
   record with more than 16,384 fields throws `LimitExceeded` before it is buffered.
+- CSV: a vertical tab, form feed or carriage return before a stray quote no longer bypasses the
+  field limit; a small `maxCellBytes` no longer slows quoted input down four- to fivefold.
+- XLSX: non-numeric untyped cell values obey `maxCellBytes`.
 - Date serials far outside the calendar no longer raise a PHP warning.
 - A zip entry whose header cannot be read makes the archive `CorruptFile` instead of being skipped.
 - The CI workflow runs with a read-only `contents` token; the bench directory is left out of the

@@ -27,7 +27,9 @@ interface Writer
     public function addRows(iterable $rows, ?Style $rowStyle = null): static;
 
     /**
-     * Idempotent; writes the final file atomically (temporary file, then rename).
+     * Writes the final file atomically (temporary file, then rename), replacing an existing file
+     * at the target path. Idempotent after a successful close; throws LogicException when an
+     * earlier error aborted the write, as no file was written then.
      */
     public function close(): void;
 }

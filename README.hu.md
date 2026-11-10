@@ -77,9 +77,19 @@ $reader = Spreadsheet::read(
   `csvEncoding` (`UTF-16`, `UCS-2`, `UTF-32`, `UCS-4`) a sorrendet a BOM-ból veszi, BOM hiányában
   big-endiant használ; az `UTF-16LE` és a hasonló nevek pontosan úgy érvényesülnek, ahogy meg vannak
   adva.
+- Az Excel for Mac CSV-exportját is olvassa: a Mac Central European kódlapot felismeri (vagy
+  megadható: `csvEncoding: 'MacCentralEurope'`), a csak kocsivisszával tördelt „CSV Mac” formátumot
+  pedig rekordokra bontja. Az ilyen fájlban az idézett mezőn belüli kocsivissza `\n` lesz.
+- A `maxCellBytes` a nyers CSV-bájtokat számolja, a határoló idézőjelekkel együtt. Kis korlát a
+  szokásos soroknál nem lassít; a korláttal nagyjából egyező vagy hosszabb sorokat bájtonként
+  ellenőrzi, ezek kb. kétszer lassabban olvashatók.
 
-Hiányzó vagy olvashatatlan fájlnál `SpreadsheetException`, `.xls`, Numbers és PDF fájlnál
-`UnsupportedFormat` kivétel keletkezik.
+Hiányzó vagy olvashatatlan fájlnál minden formátum `SpreadsheetException` kivételt ad, akkor is, ha
+közvetlenül egy olvasóosztályt használunk. Üres (0 bájtos) fájlnál `UnsupportedFormat` keletkezik;
+`Format::Csv` megadásával üres CSV-ként olvasható. A zip-archívumként kezdődő, de meg nem nyitható
+(például csonkán feltöltött) fájl `CorruptFile` kivételt ad. Az `.xls`, `.xlsb`, a jelszóval védett
+Office-fájl, a Numbers és a PDF `UnsupportedFormat` kivételt ad, az üzenet megnevezi a típust. A NUL
+bájt nélküli rövid bináris fájl nem különböztethető meg a szövegtől, ezért CSV-ként olvasódik.
 
 ## Írás
 
@@ -122,9 +132,21 @@ $writer->close();                                   // a fájl záráskor, atomi
   és a strukturált hivatkozások átalakítás nélkül íródnak ki, így az ilyen képlet a LibreOffice-ban
   nem feltétlenül számolható; ezekhez XLSX-et érdemes használni.
 - Az XML-ben tiltott karaktereket eltávolítja, ahelyett hogy sérült fájlt írna.
-- A munkalapnevek ellenőrzése (hossz, tiltott karakterek, kis-nagybetűtől független duplikátum)
-  még az írás megkezdése előtt megtörténik.
+- A munkalapnevek ellenőrzése (hossz, tiltott karakterek, az XML-ben nem tárolható karakterek,
+  például az U+FFFE, kis-nagybetűtől független duplikátum) még az írás megkezdése előtt megtörténik.
 - A `Style` megváltoztathatatlan; az azonos stílusok egyetlen bejegyzésen osztoznak a fájlban.
+- A lebegőpontos számok a legrövidebb, ugyanarra a számra visszaolvasható alakban íródnak (a `0.1`
+  `0.1` marad, az `1.0E+25` kitevős), a `precision` és a `serialize_precision` beállítástól
+  függetlenül; a `-0.0` `0`-ként íródik. Az egész számok pontosan íródnak ki, de az Excel és a
+  LibreOffice dupla pontosságú lebegőpontos számként tárolja őket: a 2^53 (9 007 199 254 740 992)
+  fölötti egészek pontatlanná válnak, és az Excel 15 értékes jegyet mutat, ezért az azonosítókat és
+  számlaszámokat szövegként írjuk.
+- Az oszlopszélesség az Excel szélességegységében értendő (az alapbetűtípus karakterei a cella
+  belső margójával együtt): az Excel oszlopszélesség-ablaka 0,83-dal kevesebbet mutat (a 12-ből
+  11,17 lesz, Excel for Mac 16-tal ellenőrizve).
+- A `close()` a kész fájlt a célútvonalra nevezi át, a meglévő fájlt figyelmeztetés nélkül
+  felülírva. Ha egy korábbi hiba megszakította az írást, a `close()` `LogicException` kivételt ad, és
+  nem keletkezik fájl.
 
 ### CSV Excelhez
 
@@ -177,11 +199,13 @@ A feltöltött fájlok megbízhatatlanok, ezért az olvasók korlátokat érvén
 | `maxZipEntries` | 5 000 | rengeteg bejegyzést tartalmazó archívumok |
 | `maxUncompressedBytes` | 4 GiB | zip-bombák, minden bejegyzés a ténylegesen kicsomagolt bájtokon mérve a deklarált méretére (legalább 1 MiB) is korlátozva |
 | `maxCompressionRatio` | 200 | az 1 MiB-nál nagyobb, 200:1 fölé táguló bejegyzések |
-| `maxCellBytes` | 1 MiB | korlátlanul növő cella vagy CSV-mező: ODS szóközsorozatok (`text:s`), XLSX megosztott és beágyazott szövegek, elszabadult idézőjel utáni CSV-mező |
+| `maxCellBytes` | 1 MiB | korlátlanul növő cella vagy CSV-mező: ODS szóközsorozatok (`text:s`), minden XLSX-szöveg (megosztott, beágyazott, képleteredmény, típus nélküli), elszabadult idézőjel utáni CSV-mező |
 | `maxCells` | 100 000 000 | a cellák és sorok ismétlésével (`number-columns-repeated` x `number-rows-repeated`) keletkező ODS-cellák |
 | `maxSharedStrings` | 10 000 000 | több millió bejegyzéses XLSX megosztottszöveg-táblák |
 
-Rögzített korlátok: az 1 048 576. soron és az XFD (16 384.) oszlopon túli XLSX-cellák; a 16 384-nél
+Rögzített korlátok: az 1 048 576. soron túli nem üres sorok (az ezen túli üres sorokat kihagyja; az
+ODS ismétlésszámai akárhány jegyűek, a korlátokhoz mérődnek) és az XFD (16 384.) oszlopon túli
+XLSX-cellák; a 16 384-nél
 több mezőt tartalmazó CSV-rekord; a 4 096-nál több munkalap; az XLSX-stílusrészben a 65 536-nál több
 cella- vagy számformátum; 64 MiB az XLSX munkafüzet-, kapcsolat- és stílusrészeire. Mindegyik
 `LimitExceeded` kivételt ad, ahelyett hogy elfogyasztaná a memóriát vagy az időt. A belső részhalmazt

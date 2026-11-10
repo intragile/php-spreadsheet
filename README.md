@@ -74,9 +74,19 @@ $reader = Spreadsheet::read(
   of the zero bytes, which works for text that is mostly Latin script). A `csvEncoding` without a
   byte order (`UTF-16`, `UCS-2`, `UTF-32`, `UCS-4`) takes it from the mark and falls back to
   big-endian when there is none; `UTF-16LE` and the like are used as given.
+- CSV exported by Excel for Mac is read as well: its Mac Central European code page is detected
+  (or name it with `csvEncoding: 'MacCentralEurope'`), and the "CSV Mac" format, whose lines end with
+  a bare carriage return, is split into records. In such files a carriage return inside a quoted
+  field becomes `\n`.
+- `maxCellBytes` counts raw CSV bytes including enclosures. A small limit costs no speed on ordinary
+  rows; rows about as long as the limit or longer are checked byte by byte and read about 2x slower.
 
-A missing or unreadable file throws `SpreadsheetException`; `.xls`, Numbers and PDF files throw
-`UnsupportedFormat`.
+A missing or unreadable file throws `SpreadsheetException` for every format, also when a reader
+class is used directly. An empty (0-byte) file throws `UnsupportedFormat`; pass `Format::Csv` to read
+it as an empty CSV. A file that starts like a zip archive but cannot be opened (a truncated upload)
+throws `CorruptFile`. `.xls`, `.xlsb`, password-protected Office files, Numbers and PDF files throw
+`UnsupportedFormat` with a message naming them. A short binary file without NUL bytes cannot be told
+apart from text and is read as CSV.
 
 ## Writing
 
@@ -118,9 +128,19 @@ $writer->close();                                   // the file appears atomical
   separator. References to other sheets (`Sheet2!A1`), quoted names and structured references are
   written unconverted, so such a formula may not evaluate in LibreOffice; use XLSX for them.
 - Characters that are illegal in XML are stripped instead of producing a corrupt file.
-- Sheet names are validated (length, forbidden characters, case-insensitive duplicates) before
-  anything is written.
+- Sheet names are validated (length, forbidden characters, characters XML cannot hold such as
+  U+FFFE, case-insensitive duplicates) before anything is written.
 - `Style` is immutable; equal styles share one entry in the file.
+- Floats are written in the shortest form that reads back as the same number (`0.1` stays `0.1`,
+  `1.0E+25` uses an exponent), independent of the `precision` and `serialize_precision` settings;
+  `-0.0` is written as `0`. Integers are written exactly, but Excel and LibreOffice store numbers as
+  doubles: integers beyond 2^53 (9,007,199,254,740,992) lose precision and Excel shows 15 significant
+  digits, so write IDs and account numbers as strings.
+- Column widths are in Excel's width unit (characters of the default font including cell padding):
+  Excel's column-width dialog shows 0.83 less (12 shows as 11.17, checked with Excel for Mac 16).
+- `close()` renames the finished file onto the target path, replacing an existing file without
+  warning. If an earlier error aborted the write, `close()` throws `LogicException` and no file is
+  written.
 
 ### CSV for Excel
 
@@ -171,11 +191,12 @@ Uploaded files are untrusted, so readers enforce limits (all configurable in `Re
 | `maxZipEntries` | 5,000 | archives with huge entry counts |
 | `maxUncompressedBytes` | 4 GiB | zip bombs, each entry is also capped at its declared size (at least 1 MiB) on the bytes actually decompressed |
 | `maxCompressionRatio` | 200 | entries larger than 1 MiB that expand more than 200:1 |
-| `maxCellBytes` | 1 MiB | one cell or CSV field growing without bound: ODS space runs (`text:s`), XLSX shared and inline strings, a CSV field after a stray quote |
+| `maxCellBytes` | 1 MiB | one cell or CSV field growing without bound: ODS space runs (`text:s`), every XLSX text value (shared, inline, formula results, untyped), a CSV field after a stray quote |
 | `maxCells` | 100,000,000 | ODS cells produced by repeating cells and rows (`number-columns-repeated` x `number-rows-repeated`) |
 | `maxSharedStrings` | 10,000,000 | XLSX shared-string tables with millions of entries |
 
-Fixed limits: rows beyond 1,048,576 and XLSX columns beyond XFD (16,384); CSV records with more
+Fixed limits: non-empty rows beyond 1,048,576 (empty rows past it are skipped; ODS repeat counts
+are held to the limits however many digits they have) and XLSX columns beyond XFD (16,384); CSV records with more
 than 16,384 fields; more than 4,096 sheets; more than 65,536 cell or number formats in an XLSX
 styles part; 64 MiB for the XLSX workbook, relationship and styles parts. Each raises
 `LimitExceeded` instead of exhausting memory or time. A DOCTYPE with an internal subset (where
