@@ -284,7 +284,7 @@ final class CsvWriterTest extends TestCase
         $writer = new CsvWriter($path);
 
         try {
-            $writer->addRow([new \stdClass]);
+            $writer->addRow([NAN]);
             $this->fail('Expected exception');
         } catch (InvalidArgumentException) {
         }

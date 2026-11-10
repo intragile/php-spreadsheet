@@ -221,7 +221,7 @@ final class XlsxWriter implements Writer
     }
 
     /**
-     * @throws LogicException when an earlier failure aborted the write, so no file was written
+     * Throws a LogicException when an earlier failure aborted the write, so no file was written.
      */
     public function close(): void
     {

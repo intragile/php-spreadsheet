@@ -855,7 +855,7 @@ final class OdsWriterTest extends TestCase
         $writer = new OdsWriter($path);
 
         try {
-            $writer->addRow([new \stdClass]);
+            $writer->addRow([NAN]);
             $this->fail('Expected exception');
         } catch (InvalidArgumentException) {
         }

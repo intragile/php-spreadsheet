@@ -677,7 +677,7 @@ final class XlsxWriterTest extends TestCase
         $writer = new XlsxWriter($path);
 
         try {
-            $writer->addRow([new \stdClass]);
+            $writer->addRow([NAN]);
             $this->fail('Expected exception');
         } catch (InvalidArgumentException) {
         }
