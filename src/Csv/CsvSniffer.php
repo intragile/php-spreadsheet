@@ -38,6 +38,15 @@ final class CsvSniffer
             return ['UTF-8', 3];
         }
 
+        // The UTF-32LE mark starts with the UTF-16LE one, so it is checked first.
+        if (str_starts_with($sample, "\xFF\xFE\x00\x00")) {
+            return ['UTF-32LE', 4];
+        }
+
+        if (str_starts_with($sample, "\x00\x00\xFE\xFF")) {
+            return ['UTF-32BE', 4];
+        }
+
         if (str_starts_with($sample, "\xFF\xFE")) {
             return ['UTF-16LE', 2];
         }
@@ -78,9 +87,9 @@ final class CsvSniffer
             return $bytes;
         }
 
-        if (str_starts_with($encoding, 'UTF-16') && strlen($bytes) % 2 === 1) {
-            $bytes = substr($bytes, 0, -1);
-        }
+        // The sample limit may have cut the last code unit in half.
+        $unit = str_starts_with($encoding, 'UTF-32') ? 4 : (str_starts_with($encoding, 'UTF-16') ? 2 : 1);
+        $bytes = substr($bytes, 0, strlen($bytes) - strlen($bytes) % $unit);
 
         return CsvDecoder::decode($bytes, $encoding);
     }

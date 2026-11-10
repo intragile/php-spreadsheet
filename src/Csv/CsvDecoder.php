@@ -35,18 +35,20 @@ final class CsvDecoder
     public static function plan(string $encoding): array
     {
         $upper = strtoupper(trim($encoding));
+        $canonical = self::canonical($encoding);
 
-        $unit = match ($upper) {
-            'UTF-16', 'UTF-16BE', 'UTF-16LE', 'UCS-2', 'UCS-2BE', 'UCS-2LE' => 2,
-            'UTF-32', 'UTF-32BE', 'UTF-32LE', 'UCS-4', 'UCS-4BE', 'UCS-4LE' => 4,
+        $unit = match ($canonical) {
+            'UTF-16', 'UTF-16BE', 'UTF-16LE' => 2,
+            'UTF-32', 'UTF-32BE', 'UTF-32LE' => 4,
             default => 0,
         };
 
         if ($unit > 0) {
-            // Without a byte-order suffix the unit order is big-endian, as the BOM was already skipped.
-            $name = str_ends_with($upper, 'LE') || str_ends_with($upper, 'BE') ? $upper : $upper.'BE';
+            // Without a byte-order suffix and without a mark (the reader resolves a mark before
+            // this point) the unit order is big-endian, as RFC 2781 prescribes.
+            $name = str_ends_with($canonical, 'LE') || str_ends_with($canonical, 'BE') ? $canonical : $canonical.'BE';
 
-            return ['table' => null, 'encoding' => str_replace('UCS-2', 'UTF-16', str_replace('UCS-4', 'UTF-32', $name)), 'unit' => $unit];
+            return ['table' => null, 'encoding' => $name, 'unit' => $unit];
         }
 
         if (preg_match(self::SINGLE_BYTE, $upper) !== 1) {
@@ -54,6 +56,14 @@ final class CsvDecoder
         }
 
         return ['table' => self::$tables[$upper] ??= self::buildTable($encoding), 'encoding' => null, 'unit' => 1];
+    }
+
+    /**
+     * Upper-case encoding name with the UCS-2 and UCS-4 aliases mapped to UTF-16 and UTF-32.
+     */
+    public static function canonical(string $encoding): string
+    {
+        return str_replace(['UCS-2', 'UCS-4'], ['UTF-16', 'UTF-32'], strtoupper(trim($encoding)));
     }
 
     /**

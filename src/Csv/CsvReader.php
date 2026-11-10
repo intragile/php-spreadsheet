@@ -44,7 +44,7 @@ final class CsvReader implements Reader
         }
 
         $sniffed = (new CsvSniffer)->sniff($path);
-        $encoding = $options->csvEncoding ?? $sniffed->encoding;
+        [$encoding, $bomLength] = self::resolveEncoding($options->csvEncoding, $sniffed);
 
         if ($options->csvDelimiter !== null && strlen($options->csvDelimiter) !== 1) {
             throw new InvalidArgumentException('The CSV delimiter must be a single byte.');
@@ -59,7 +59,7 @@ final class CsvReader implements Reader
             $options->csvDelimiter ?? $sniffed->delimiter,
             $options->csvEnclosure,
             $encoding,
-            strcasecmp($encoding, $sniffed->encoding) === 0 ? $sniffed->bomLength : 0,
+            $bomLength,
         );
     }
 
@@ -162,6 +162,31 @@ final class CsvReader implements Reader
         }
 
         return $handle;
+    }
+
+    /**
+     * Applies a named encoding to the byte-order mark found in the file: the mark is skipped when
+     * it belongs to that encoding, and it decides the byte order when the name leaves it open
+     * ("UTF-16", "UCS-2", "UTF-32", "UCS-4"). A mark of another encoding is left in the data.
+     *
+     * @return array{string, int} encoding and number of bytes to skip
+     */
+    private static function resolveEncoding(?string $named, CsvDialect $sniffed): array
+    {
+        if ($named === null) {
+            return [$sniffed->encoding, $sniffed->bomLength];
+        }
+
+        if ($sniffed->bomLength > 0) {
+            $canonical = CsvDecoder::canonical($named);
+
+            if ($canonical === $sniffed->encoding
+                || (($canonical === 'UTF-16' || $canonical === 'UTF-32') && str_starts_with($sniffed->encoding, $canonical))) {
+                return [$sniffed->encoding, $sniffed->bomLength];
+            }
+        }
+
+        return [$named, 0];
     }
 
     /**

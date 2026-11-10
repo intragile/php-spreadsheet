@@ -115,6 +115,42 @@ final class CsvReaderTest extends TestCase
         }
     }
 
+    /** @return iterable<string, array{string|null, string, string}> */
+    public static function encodingsWithByteOrderMarks(): iterable
+    {
+        yield 'UTF-16 named, LE mark' => ['UTF-16', 'UTF-16LE', "\xFF\xFE"];
+        yield 'UTF-16 named, BE mark' => ['UTF-16', 'UTF-16BE', "\xFE\xFF"];
+        yield 'UCS-2 named, LE mark' => ['UCS-2', 'UTF-16LE', "\xFF\xFE"];
+        yield 'UCS-2LE named, LE mark' => ['UCS-2LE', 'UTF-16LE', "\xFF\xFE"];
+        yield 'utf-16 lowercase, LE mark' => ['utf-16', 'UTF-16LE', "\xFF\xFE"];
+        yield 'UTF-32 named, LE mark' => ['UTF-32', 'UTF-32LE', "\xFF\xFE\x00\x00"];
+        yield 'UTF-32 named, BE mark' => ['UTF-32', 'UTF-32BE', "\x00\x00\xFE\xFF"];
+        yield 'UCS-4 named, LE mark' => ['UCS-4', 'UTF-32LE', "\xFF\xFE\x00\x00"];
+        yield 'detected UTF-32LE mark' => [null, 'UTF-32LE', "\xFF\xFE\x00\x00"];
+        yield 'detected UTF-32BE mark' => [null, 'UTF-32BE', "\x00\x00\xFE\xFF"];
+    }
+
+    #[DataProvider('encodingsWithByteOrderMarks')]
+    public function test_the_byte_order_mark_decides_when_the_encoding_has_no_byte_order(?string $named, string $actual, string $bom): void
+    {
+        $path = Fixtures::file($bom.mb_convert_encoding("id\tname\n1\tÁrpád 😀\n", $actual, 'UTF-8'), 'txt');
+
+        $rows = self::withoutPhpErrors(static fn (): array => iterator_to_array((new CsvReader($path, new ReadOptions(csvEncoding: $named)))->rows()));
+
+        $this->assertSame([1 => ['id', 'name'], 2 => ['1', 'Árpád 😀']], $rows);
+    }
+
+    public function test_an_encoding_without_byte_order_and_without_a_mark_is_big_endian(): void
+    {
+        foreach (['UTF-16' => 'UTF-16BE', 'UTF-32' => 'UTF-32BE'] as $named => $actual) {
+            $path = Fixtures::file(mb_convert_encoding("id;name\n1;Árpád\n", $actual, 'UTF-8'), 'csv');
+
+            $rows = iterator_to_array((new CsvReader($path, new ReadOptions(csvEncoding: $named)))->rows());
+
+            $this->assertSame([1 => ['id', 'name'], 2 => ['1', 'Árpád']], $rows, $named);
+        }
+    }
+
     public function test_unsupported_encoding_is_rejected(): void
     {
         $this->expectException(InvalidArgumentException::class);
