@@ -51,6 +51,9 @@ final class CsvGuardFilter extends php_user_filter
 
     private bool $failed = false;
 
+    /** Matches a run of complete, well-formed records from a record start. */
+    private string $records = '';
+
     public static function register(): void
     {
         if (! in_array(self::FILTER, stream_get_filters(), true)) {
@@ -71,6 +74,14 @@ final class CsvGuardFilter extends php_user_filter
         $this->maxFieldBytes = $params['maxFieldBytes'];
         $this->maxFields = $params['maxFields'];
         $this->blanks = str_replace($this->delimiter, '', " \t");
+
+        $d = preg_quote($this->delimiter, '/');
+        $e = preg_quote($this->enclosure, '/');
+        $b = $this->blanks === '' ? '' : '['.preg_quote($this->blanks, '/').']*+';
+        // A field: optional blanks, then a quoted part followed by text up to the delimiter, or
+        // unquoted text that does not start with the enclosure, or nothing.
+        $field = $b.'(?:'.$e.'(?:[^'.$e.']++|'.$e.$e.')*+'.$e.'[^'.$d.'\n]*+|[^'.$e.$d.'\n][^'.$d.'\n]*+)?+';
+        $this->records = '/\G(?:'.$field.'(?:'.$d.$field.')*+\n)*+/';
 
         return true;
     }
@@ -113,6 +124,14 @@ final class CsvGuardFilter extends php_user_filter
         $position = 0;
 
         while ($position < $length) {
+            if ($this->state === self::FIELD_START && $this->fieldBytes === 0 && $this->delimiters === 0) {
+                $position = $this->skipRecords($data, $position);
+
+                if ($position >= $length) {
+                    return;
+                }
+            }
+
             if ($position > $lastEnclosure && ($this->state === self::UNQUOTED || $this->state === self::FIELD_START)) {
                 $this->scanPlain($position === 0 ? $data : substr($data, $position));
 
@@ -170,6 +189,27 @@ final class CsvGuardFilter extends php_user_filter
                     }
             }
         }
+    }
+
+    /**
+     * Skips the complete records at a record start in one regular-expression match, as long as
+     * none of them can break a limit: a run no longer than the field limit holds no longer field,
+     * and a run with fewer delimiters than the field cap holds no record with too many fields.
+     * Returns where the slower scan has to continue.
+     */
+    private function skipRecords(string $data, int $position): int
+    {
+        if (preg_match($this->records, $data, $match, 0, $position) !== 1 || $match[0] === '') {
+            return $position;
+        }
+
+        $run = strlen($match[0]);
+
+        if ($run > $this->maxFieldBytes || substr_count($match[0], $this->delimiter) >= $this->maxFields) {
+            return $position;
+        }
+
+        return $position + $run;
     }
 
     /**
