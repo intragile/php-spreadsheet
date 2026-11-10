@@ -8,6 +8,10 @@ Fejlesztő és karbantartó: [IntrAgile Kft.](https://intragile.eu)
 
 [English README → README.md](README.md)
 
+Laravelt használsz? Az [intragile/laravel-spreadsheet](https://github.com/intragile/laravel-spreadsheet) erre a
+csomagra épül: Eloquent-export kulcs alapú lapozással és sorba állítható jobbal, valamint import automatikus
+oszlopmegfeleltetéssel, validációval, hibás sorok fájljával és a meglévő adatokkal való rekordpárosítással.
+
 ```php
 use IntrAgile\Spreadsheet\Spreadsheet;
 
@@ -27,7 +31,8 @@ composer require intragile/php-spreadsheet
 ```
 
 PHP 8.3+ szükséges az `ext-zip`, `ext-xmlreader`, `ext-mbstring` és `ext-iconv` bővítményekkel.
-Composer-függőség nincs.
+Composer-függőség nincs. A régi `.xls` fájlok olvasásához az ajánlott `phpoffice/phpspreadsheet` csomag kell
+(lásd: [Régi XLS-fájlok olvasása](#régi-xls-fájlok-olvasása)).
 
 ## Olvasás
 

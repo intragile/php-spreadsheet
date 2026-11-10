@@ -102,4 +102,4 @@ First stable release: streaming XLSX, ODS and CSV reading and writing with bound
 
 ---
 
-Developed and maintained by [IntrAgile Kft.](https://intragile.eu).
+Developed and maintained by [IntrAgile Kft.](https://intragile.eu)

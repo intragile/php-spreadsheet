@@ -8,6 +8,10 @@ and out one at a time, so memory stays flat as the row count grows (see [Memory]
 
 [Magyar nyelvű leírás → README.hu.md](README.hu.md)
 
+Using Laravel? [intragile/laravel-spreadsheet](https://github.com/intragile/laravel-spreadsheet) builds on this
+package: Eloquent exports with keyset pagination and queued jobs, and imports with automatic column mapping,
+validation, a failed-rows file and record matching against existing data.
+
 ```php
 use IntrAgile\Spreadsheet\Spreadsheet;
 
@@ -27,7 +31,8 @@ composer require intragile/php-spreadsheet
 ```
 
 Requires PHP 8.3+ with `ext-zip`, `ext-xmlreader`, `ext-mbstring` and `ext-iconv`. There are no
-Composer dependencies.
+Composer dependencies. Reading legacy `.xls` files needs the suggested `phpoffice/phpspreadsheet` package (see
+[Reading legacy XLS](#reading-legacy-xls)).
 
 ## Reading
 

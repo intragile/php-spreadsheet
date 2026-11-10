@@ -26,6 +26,22 @@ jobs:
       - run: vendor/bin/phpunit
       - run: vendor/bin/phpstan analyse --memory-limit=1G
 
+  xls-adapter:
+    # The optional XLS reader against the lowest phpoffice/phpspreadsheet release Composer will
+    # install (releases with security advisories are skipped).
+    runs-on: ubuntu-latest
+    name: XLS adapter (lowest phpspreadsheet)
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, zip, xmlreader, gd
+          coverage: none
+      - run: composer update --prefer-dist --no-interaction --no-progress
+      - run: composer update phpoffice/phpspreadsheet --prefer-lowest --with-all-dependencies --prefer-dist --no-interaction --no-progress
+      - run: vendor/bin/phpunit tests/Xls tests/Inspection
+
   pint:
     runs-on: ubuntu-latest
     steps:

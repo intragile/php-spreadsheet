@@ -19,4 +19,4 @@ This package parses untrusted files. Reports are especially welcome for:
 
 ---
 
-Developed and maintained by [IntrAgile Kft.](https://intragile.eu).
+Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
