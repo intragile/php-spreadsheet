@@ -3,7 +3,7 @@ on:
   push:
   pull_request:
   schedule:
-    - cron: "0 6 * * 1"
+    - cron: "7 2 * * 1"
   workflow_dispatch:
 permissions:
   contents: read
@@ -52,3 +52,47 @@ jobs:
           coverage: none
       - run: composer update --prefer-dist --no-interaction --no-progress
       - run: vendor/bin/pint --test
+
+  next-versions:
+    # Early warning against the next PHP release,
+    # installed with minimum-stability dev. Static analysis and style are left to the jobs
+    # above. A failure here does not fail the run, so check this job's result.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { php: '8.6' }
+    name: Next / PHP ${{ matrix.php }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mbstring, zip, xmlreader
+          coverage: none
+      - name: Retarget composer.json at the upcoming versions
+        run: |
+          php -r '
+            $c = json_decode(file_get_contents("composer.json"), true);
+            foreach (["larastan/larastan", "phpstan/phpstan", "laravel/pint"] as $tool) {
+                unset($c["require-dev"][$tool]);
+            }
+            if (isset($c["require-dev"]["orchestra/testbench"])) {
+                $c["require-dev"]["orchestra/testbench"] = getenv("TESTBENCH") ?: "*";
+            }
+            $laravel = (string) getenv("LARAVEL");
+            foreach (["require", "require-dev"] as $section) {
+                foreach (array_keys($c[$section] ?? []) as $name) {
+                    if ($laravel !== "" && str_starts_with($name, "illuminate/")) {
+                        $c[$section][$name] = $laravel;
+                    }
+                }
+            }
+            $c["minimum-stability"] = "dev";
+            $c["prefer-stable"] = true;
+            file_put_contents("composer.json", json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+          '
+      - run: composer update --prefer-dist --no-interaction --no-progress --ignore-platform-req=php+
+      - run: vendor/bin/phpunit
