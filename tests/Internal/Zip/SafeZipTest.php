@@ -6,6 +6,7 @@ namespace IntrAgile\Spreadsheet\Tests\Internal\Zip;
 
 use IntrAgile\Spreadsheet\Exception\CorruptFile;
 use IntrAgile\Spreadsheet\Exception\LimitExceeded;
+use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
 use IntrAgile\Spreadsheet\Internal\Xml\MalformedXml;
 use IntrAgile\Spreadsheet\Internal\Zip\SafeZip;
 use IntrAgile\Spreadsheet\Tests\Support\Fixtures;
@@ -145,6 +146,30 @@ final class SafeZipTest extends TestCase
         $this->expectException(CorruptFile::class);
 
         SafeZip::open(Fixtures::file('not a zip at all', 'zip'), self::ENTRIES, self::BYTES);
+    }
+
+    public function test_a_missing_or_unreadable_path_is_a_read_error_not_a_corrupt_file(): void
+    {
+        $unreadable = Fixtures::zip(['a.txt' => 'x']);
+        chmod($unreadable, 0000);
+
+        try {
+            foreach ([Fixtures::path('zip'), sys_get_temp_dir(), $unreadable] as $path) {
+                if ($path === $unreadable && is_readable($path)) {
+                    continue; // Running as root: permissions cannot make the file unreadable.
+                }
+
+                try {
+                    SafeZip::open($path, self::ENTRIES, self::BYTES);
+                    $this->fail($path.' should be rejected');
+                } catch (SpreadsheetException $e) {
+                    $this->assertSame(SpreadsheetException::class, $e::class, $path);
+                    $this->assertStringContainsString('Cannot read', $e->getMessage());
+                }
+            }
+        } finally {
+            chmod($unreadable, 0644);
+        }
     }
 
     public function test_encrypted_entry_throws_corrupt_file(): void
