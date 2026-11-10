@@ -28,6 +28,39 @@ abstract class TestCase extends BaseTestCase
         return memory_get_peak_usage() - $before;
     }
 
+    /**
+     * Runs $work and fails when it raises any PHP error, warning or notice, including ones
+     * silenced with the @ operator.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $work
+     * @return T
+     */
+    protected static function withoutPhpErrors(callable $work): mixed
+    {
+        $errors = [];
+        set_error_handler(static function (int $level, string $message) use (&$errors): bool {
+            $errors[] = $message;
+
+            return true;
+        });
+        error_clear_last();
+
+        try {
+            return $work();
+        } finally {
+            restore_error_handler();
+            $last = error_get_last();
+
+            if ($last !== null) {
+                $errors[] = $last['message'];
+            }
+
+            self::assertSame([], $errors, 'PHP raised errors: '.implode('; ', $errors));
+        }
+    }
+
     protected function tearDown(): void
     {
         Fixtures::cleanup();

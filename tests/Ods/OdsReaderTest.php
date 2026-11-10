@@ -134,6 +134,81 @@ final class OdsReaderTest extends TestCase
         $this->readXml('<table:table-row><table:table-cell office:value-type="float" office:value="1" table:number-columns-repeated="2000000000"/></table:table-row>');
     }
 
+    public function test_many_space_runs_cannot_build_an_oversized_cell(): void
+    {
+        // Each text:s stays under any per-element cap; together they would expand to 100 MB.
+        $spaces = str_repeat('<text:s text:c="1000000"/>', 100);
+        $path = self::singleTable('<table:table-row><table:table-cell office:value-type="string"><text:p>'.$spaces.'</text:p></table:table-cell></table:table-row>');
+
+        self::withoutPhpErrors(function () use ($path): void {
+            $reader = new OdsReader($path, new ReadOptions);
+
+            try {
+                iterator_to_array($reader->rows());
+                $this->fail('An oversized cell was accepted.');
+            } catch (LimitExceeded $exception) {
+                $this->assertStringContainsString('1048576 bytes', $exception->getMessage());
+            } finally {
+                $reader->close();
+            }
+        });
+    }
+
+    public function test_cell_text_limit_is_configurable_and_counts_accumulated_text(): void
+    {
+        $path = self::singleTable('<table:table-row><table:table-cell office:value-type="string"><text:p>abcdef</text:p><text:p>ghij</text:p></table:table-cell></table:table-row>');
+
+        $this->assertSame([1 => ["abcdef\nghij"]], iterator_to_array((new OdsReader($path, new ReadOptions(maxCellBytes: 11)))->rows()));
+
+        $this->expectException(LimitExceeded::class);
+
+        iterator_to_array((new OdsReader($path, new ReadOptions(maxCellBytes: 10)))->rows());
+    }
+
+    public function test_string_value_attribute_obeys_the_cell_text_limit(): void
+    {
+        $path = self::singleTable('<table:table-row><table:table-cell office:value-type="string" office:string-value="'.str_repeat('x', 20).'"/></table:table-row>');
+
+        $this->expectException(LimitExceeded::class);
+
+        iterator_to_array((new OdsReader($path, new ReadOptions(maxCellBytes: 19)))->rows());
+    }
+
+    public function test_repeated_rows_of_repeated_cells_are_refused_beyond_the_cell_budget(): void
+    {
+        // 1,048,576 rows x 65,536 cells from 200 bytes of XML.
+        $path = self::singleTable('<table:table-row table:number-rows-repeated="1048576"><table:table-cell office:value-type="float" office:value="1" table:number-columns-repeated="65536"/></table:table-row>');
+
+        self::withoutPhpErrors(function () use ($path): void {
+            $reader = new OdsReader($path, new ReadOptions);
+            $rows = 0;
+
+            try {
+                foreach ($reader->rowsWithHeader() as $row) {
+                    $rows++;
+                }
+
+                $this->fail('The repeat expansion was not bounded.');
+            } catch (LimitExceeded $exception) {
+                $this->assertStringContainsString('100000000 cells', $exception->getMessage());
+                $this->assertLessThan(1600, $rows);
+            } finally {
+                $reader->close();
+            }
+        });
+    }
+
+    public function test_cell_budget_is_configurable(): void
+    {
+        $xml = '<table:table-row table:number-rows-repeated="3"><table:table-cell office:value-type="float" office:value="1" table:number-columns-repeated="4"/></table:table-row>';
+
+        $this->assertCount(3, iterator_to_array((new OdsReader(self::singleTable($xml), new ReadOptions(maxCells: 12)))->rows()));
+
+        $this->expectException(LimitExceeded::class);
+
+        iterator_to_array((new OdsReader(self::singleTable($xml), new ReadOptions(maxCells: 11)))->rows());
+    }
+
     public function test_sheet_selection_by_name_and_index_and_unknown_throws(): void
     {
         $reader = new OdsReader(Fixtures::committed('ods/multi-sheet.ods'), new ReadOptions);

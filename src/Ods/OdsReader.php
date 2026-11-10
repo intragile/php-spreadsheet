@@ -60,8 +60,8 @@ final class OdsReader implements Reader
     /** Last row of Excel and LibreOffice; a non-empty row beyond it is rejected. */
     private const MAX_ROWS = 1_048_576;
 
-    /** Longest run of spaces a single text:s may expand to. */
-    private const MAX_SPACES = 1_048_576;
+    /** Most sheets a document may declare. */
+    private const MAX_SHEETS = 4096;
 
     /** @var list<array{name: string, visible: bool}> */
     private array $sheets = [];
@@ -171,6 +171,10 @@ final class OdsReader implements Reader
                         $this->spreadsheetSeen = true;
                     }
                 } elseif ($name === 'table' && $xml->depth() === $spreadsheetDepth + 1) {
+                    if (count($this->sheets) >= self::MAX_SHEETS) {
+                        throw new LimitExceeded(sprintf('The document has more than %d sheets.', self::MAX_SHEETS));
+                    }
+
                     $styleName = $xml->attribute('style-name', self::NS_TABLE);
                     $this->sheets[] = [
                         'name' => (string) $xml->attribute('name', self::NS_TABLE),
@@ -229,6 +233,10 @@ final class OdsReader implements Reader
             // The hot loop talks to XMLReader directly; see SafeXmlReader::raw() for the contract.
             $x = $xml->raw();
             $tableDepth = $x->depth;
+            $maxCellBytes = $this->options->maxCellBytes;
+            $maxCells = $this->options->maxCells;
+            // Cells produced by repeat counts; plain cells are bounded by the size of the file itself.
+            $expanded = 0;
             /** @var array<string, DateTimeImmutable> $dates */
             $dates = [];
             $row = [];
@@ -249,9 +257,9 @@ final class OdsReader implements Reader
 
                     if ($name === 'table-cell' || $name === 'covered-table-cell') {
                         $repeat = self::repeat($x->getAttributeNs('number-columns-repeated', self::NS_TABLE));
+                        $value = null;
                         $type = $x->getAttributeNs('value-type', self::NS_OFFICE);
                         $empty = $x->isEmptyElement;
-                        $value = null;
                         $text = false;
 
                         if ($type === 'float' || $type === 'percentage' || $type === 'currency') {
@@ -276,6 +284,10 @@ final class OdsReader implements Reader
                         } elseif ($type === 'string') {
                             $value = $x->getAttributeNs('string-value', self::NS_OFFICE);
                             $text = $value === null && ! $empty;
+
+                            if ($value !== null && strlen($value) > $maxCellBytes) {
+                                throw self::cellTooLong($maxCellBytes);
+                            }
                         } elseif ($type === 'date') {
                             $raw = $x->getAttributeNs('date-value', self::NS_OFFICE);
 
@@ -310,7 +322,7 @@ final class OdsReader implements Reader
                         // After a failed read() or next() XMLReader unwinds with synthetic end tags,
                         // so every step stops at the first false.
                         if ($text) {
-                            $value = self::cellText($x);
+                            $value = self::cellText($x, $maxCellBytes);
 
                             if ($value === null) {
                                 break;
@@ -337,6 +349,14 @@ final class OdsReader implements Reader
                         for (; $pending > 0; $pending--) {
                             $row[] = null;
                             $count++;
+                        }
+
+                        if ($repeat > 1) {
+                            $expanded += $repeat;
+
+                            if ($expanded > $maxCells) {
+                                throw self::tooManyCells($maxCells);
+                            }
                         }
 
                         for ($i = 0; $i < $repeat; $i++) {
@@ -366,6 +386,14 @@ final class OdsReader implements Reader
                         if ($count > 0) {
                             if ($firstRow + $rowRepeat - 1 > self::MAX_ROWS) {
                                 throw new LimitExceeded(sprintf('A non-empty row lies beyond row %d.', self::MAX_ROWS));
+                            }
+
+                            if ($rowRepeat > 1) {
+                                $expanded += ($rowRepeat - 1) * $count;
+
+                                if ($expanded > $maxCells) {
+                                    throw self::tooManyCells($maxCells);
+                                }
                             }
 
                             /** @var list<int|float|string|bool|DateTimeImmutable|null> $row */
@@ -454,8 +482,10 @@ final class OdsReader implements Reader
      * Reads the text of a string cell: the paragraphs joined with "\n", with spaces, tabs and line
      * breaks expanded and annotations left out. Starts on the cell's start tag and stops on its
      * end tag; null when the reader failed on the way, an empty string when the cell has no text.
+     *
+     * @throws LimitExceeded when the text grows beyond $maxBytes
      */
-    private static function cellText(XMLReader $x): ?string
+    private static function cellText(XMLReader $x, int $maxBytes): ?string
     {
         $depth = $x->depth;
         $text = '';
@@ -474,6 +504,10 @@ final class OdsReader implements Reader
                     if ($paragraphDepth < 0) {
                         if ($paragraphs++ > 0) {
                             $text .= "\n";
+
+                            if (strlen($text) > $maxBytes) {
+                                throw self::cellTooLong($maxBytes);
+                            }
                         }
 
                         if (! $x->isEmptyElement) {
@@ -484,15 +518,17 @@ final class OdsReader implements Reader
                     $spaces = $x->getAttributeNs('c', self::NS_TEXT);
                     $spaces = $spaces === null ? 1 : self::repeat($spaces, 'text:c');
 
-                    if ($spaces > self::MAX_SPACES) {
-                        throw new LimitExceeded('A text:s element expands to too many spaces.');
+                    if ($spaces > $maxBytes - strlen($text)) {
+                        throw self::cellTooLong($maxBytes);
                     }
 
                     $text .= str_repeat(' ', $spaces);
-                } elseif ($name === 'tab') {
-                    $text .= "\t";
-                } elseif ($name === 'line-break') {
-                    $text .= "\n";
+                } elseif ($name === 'tab' || $name === 'line-break') {
+                    $text .= $name === 'tab' ? "\t" : "\n";
+
+                    if (strlen($text) > $maxBytes) {
+                        throw self::cellTooLong($maxBytes);
+                    }
                 } elseif (($name === 'annotation' || $name === 'table' || $name === 'shapes') && ! $x->isEmptyElement) {
                     // Notes are not cell content, and a nested table has rows of its own.
                     $hold = true;
@@ -511,10 +547,24 @@ final class OdsReader implements Reader
                 }
             } elseif ($paragraphDepth >= 0 && ($nodeType === XMLReader::TEXT || $nodeType === XMLReader::SIGNIFICANT_WHITESPACE || $nodeType === XMLReader::CDATA)) {
                 $text .= $x->value;
+
+                if (strlen($text) > $maxBytes) {
+                    throw self::cellTooLong($maxBytes);
+                }
             }
         }
 
         return null;
+    }
+
+    private static function cellTooLong(int $maxBytes): LimitExceeded
+    {
+        return new LimitExceeded(sprintf('A cell holds more than %d bytes of text.', $maxBytes));
+    }
+
+    private static function tooManyCells(int $maxCells): LimitExceeded
+    {
+        return new LimitExceeded(sprintf('Repeated cells and rows expand to more than %d cells.', $maxCells));
     }
 
     /**
