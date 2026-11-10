@@ -82,9 +82,7 @@ final class CsvSniffer
             $bytes = substr($bytes, 0, -1);
         }
 
-        $decoded = @iconv($encoding, 'UTF-8//IGNORE', $bytes);
-
-        return $decoded === false ? '' : $decoded;
+        return CsvDecoder::decode($bytes, $encoding);
     }
 
     private function detectDelimiter(string $text): string

@@ -11,9 +11,13 @@ use IntrAgile\Spreadsheet\Internal\HeaderKeyedRows;
 use IntrAgile\Spreadsheet\ReadOptions;
 use IntrAgile\Spreadsheet\SheetInfo;
 use InvalidArgumentException;
+use Throwable;
 
 /**
  * Streams a CSV file one record at a time. Every value is a string; nothing is type-inferred.
+ *
+ * Input in another encoding is decoded to UTF-8 losslessly: a byte the code page leaves undefined
+ * becomes U+FFFD instead of failing the read.
  */
 final class CsvReader implements Reader
 {
@@ -124,18 +128,30 @@ final class CsvReader implements Reader
             fseek($handle, $this->dialect->bomLength);
         }
 
-        if (strcasecmp($this->dialect->encoding, 'UTF-8') !== 0) {
-            // Decode on the fly so fgetcsv keeps streaming.
-            $filter = @stream_filter_append($handle, 'convert.iconv.'.$this->dialect->encoding.'/UTF-8', STREAM_FILTER_READ);
-
-            if ($filter === false) {
-                fclose($handle);
-
-                throw new InvalidArgumentException("Unsupported CSV encoding \"{$this->dialect->encoding}\".");
+        try {
+            if (strcasecmp($this->dialect->encoding, 'UTF-8') !== 0) {
+                // Decode on the fly so fgetcsv keeps streaming; fails early on an unknown encoding.
+                CsvDecoder::plan($this->dialect->encoding);
+                CsvDecoder::register();
+                self::appendFilter($handle, CsvDecoder::FILTER, $this->dialect->encoding);
             }
+        } catch (Throwable $exception) {
+            fclose($handle);
+
+            throw $exception;
         }
 
         return $handle;
+    }
+
+    /**
+     * @param  resource  $handle
+     */
+    private static function appendFilter($handle, string $filter, string $params): void
+    {
+        if (stream_filter_append($handle, $filter, STREAM_FILTER_READ, $params) === false) {
+            throw new SpreadsheetException(sprintf('Cannot attach the %s stream filter.', $filter));
+        }
     }
 
     /**

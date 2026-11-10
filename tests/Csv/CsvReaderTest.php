@@ -72,6 +72,54 @@ final class CsvReaderTest extends TestCase
         $this->assertSame(['ő', '1'], $rows[2]);
     }
 
+    public function test_unmappable_windows_1250_byte_becomes_a_replacement_character(): void
+    {
+        // 0x81 has no character in Windows-1250; iconv used to drop every row of the chunk.
+        $lines = ["N\xE9v;\xD6sszeg"];
+
+        for ($i = 1; $i <= 2000; $i++) {
+            $lines[] = $i === 1000 ? "Gy\xF5r\x81;{$i}" : "\xC1rv\xEDzt\xFBr\xF5 {$i};{$i}";
+        }
+
+        $path = Fixtures::file(implode("\r\n", $lines)."\r\n", 'csv');
+
+        $rows = self::withoutPhpErrors(static fn (): array => iterator_to_array((new CsvReader($path, new ReadOptions))->rows()));
+
+        $this->assertCount(2001, $rows);
+        $this->assertSame(['Név', 'Összeg'], $rows[1]);
+        $this->assertSame(["Győr\u{FFFD}", '1000'], $rows[1001]);
+        $this->assertSame(['Árvíztűrő 2000', '2000'], $rows[2001]);
+    }
+
+    public function test_utf16_surrogate_pairs_and_odd_bytes_survive_chunk_boundaries(): void
+    {
+        $expected = [1 => ['id', 'name']];
+        $text = "id\tname\n";
+
+        for ($i = 1; $i <= 3000; $i++) {
+            $name = str_repeat('é', $i % 7)."😀 Árpád {$i}";
+            $text .= "{$i}\t{$name}\n";
+            $expected[$i + 1] = [(string) $i, $name];
+        }
+
+        foreach (['UTF-16LE' => "\xFF\xFE", 'UTF-16BE' => "\xFE\xFF"] as $encoding => $bom) {
+            // A stray trailing byte cannot form a code unit and is replaced.
+            $path = Fixtures::file($bom.mb_convert_encoding($text.'x', $encoding, 'UTF-8')."\x00", 'txt');
+
+            $rows = self::withoutPhpErrors(static fn (): array => iterator_to_array((new CsvReader($path, new ReadOptions))->rows()));
+
+            $this->assertSame($expected + [3002 => ["x\u{FFFD}"]], $rows, $encoding);
+        }
+    }
+
+    public function test_unsupported_encoding_is_rejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unsupported CSV encoding "X-NONSENSE"');
+
+        iterator_to_array((new CsvReader(Fixtures::file("a\n", 'csv'), new ReadOptions(csvEncoding: 'X-NONSENSE')))->rows());
+    }
+
     public function test_concurrent_generators_are_independent_and_close_releases_all(): void
     {
         $reader = new CsvReader(Fixtures::committed('csv/utf8-bom-comma.csv'), new ReadOptions);
