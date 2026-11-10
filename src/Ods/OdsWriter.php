@@ -606,7 +606,8 @@ final class OdsWriter implements Writer
 
     /**
      * The text:p elements of a string: one per line, with tabs and the spaces a reader would
-     * collapse (leading, trailing and repeated) spelled out, and characters XML cannot hold removed.
+     * collapse (leading, trailing, repeated or following a tab) spelled out, and characters XML
+     * cannot hold removed.
      */
     private static function paragraphs(string $value): string
     {
@@ -619,10 +620,11 @@ final class OdsWriter implements Writer
 
         foreach ($lines as $line) {
             $length = strlen($line);
-            $encoded = (string) preg_replace_callback('/ +/', static function (array $match) use ($length): string {
+            $encoded = (string) preg_replace_callback('/ +/', static function (array $match) use ($line, $length): string {
                 [$run, $offset] = $match[0];
                 $count = strlen($run);
-                $edge = $offset === 0 || $offset + $count === $length;
+                // A literal space is dropped at either end of a paragraph and right after a tab.
+                $edge = $offset === 0 || $offset + $count === $length || $line[$offset - 1] === "\t";
                 $spaces = $edge ? $count : $count - 1;
                 $element = $spaces === 1 ? '<text:s/>' : '<text:s text:c="'.$spaces.'"/>';
 

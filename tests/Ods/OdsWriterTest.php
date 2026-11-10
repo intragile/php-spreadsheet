@@ -98,6 +98,22 @@ final class OdsWriterTest extends TestCase
         $this->assertStringContainsString('<text:p>multi</text:p><text:p>line</text:p>', $content);
     }
 
+    public function test_spaces_next_to_tabs_survive_whitespace_collapsing(): void
+    {
+        $path = Fixtures::path('ods');
+        $strings = ["a\t b", ' lead', 'a  b', 'trail ', "a\t  b", "\t x", "a \tb", "x\t\t y"];
+        (new OdsWriter($path))->addRow($strings)->close();
+
+        $this->assertSame($strings, self::readRows($path)[1]);
+
+        // ODF collapses a literal space at the start of a paragraph or right after a tab, so every
+        // such space must be a text:s element.
+        $content = self::part($path, 'content.xml');
+        $this->assertDoesNotMatchRegularExpression('#(<text:tab/>|<text:p>) #', $content);
+        $this->assertStringContainsString('<text:p>a<text:tab/><text:s/>b</text:p>', $content);
+        $this->assertStringContainsString('<text:p>a<text:tab/><text:s text:c="2"/>b</text:p>', $content);
+    }
+
     public function test_styles_bold_fill_numberformat(): void
     {
         $path = Fixtures::path('ods');
