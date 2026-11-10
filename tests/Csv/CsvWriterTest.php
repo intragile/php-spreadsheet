@@ -15,7 +15,9 @@ use IntrAgile\Spreadsheet\SheetOptions;
 use IntrAgile\Spreadsheet\Style;
 use IntrAgile\Spreadsheet\Tests\Support\Fixtures;
 use IntrAgile\Spreadsheet\Tests\Support\TestCase;
+use InvalidArgumentException;
 use LogicException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
 final class CsvWriterTest extends TestCase
@@ -148,6 +150,52 @@ final class CsvWriterTest extends TestCase
         }
 
         $this->assertSame("1234.5,0.30000000000000004\r\n", file_get_contents($path));
+    }
+
+    /**
+     * @return iterable<string, array{mixed}>
+     */
+    public static function unwritableValues(): iterable
+    {
+        yield 'infinity' => [INF];
+        yield 'negative infinity' => [-INF];
+        yield 'not a number' => [NAN];
+        yield 'array' => [['nested']];
+        yield 'object' => [new \stdClass];
+    }
+
+    #[DataProvider('unwritableValues')]
+    public function test_values_xlsx_and_ods_refuse_are_refused(mixed $value): void
+    {
+        $path = Fixtures::path('csv');
+        $writer = new CsvWriter($path);
+
+        try {
+            /** @phpstan-ignore argument.type (deliberately invalid input) */
+            $writer->addRow(['ok', $value]);
+            $this->fail('The value was written.');
+        } catch (InvalidArgumentException) {
+        }
+
+        $this->assertFileDoesNotExist($path);
+    }
+
+    public function test_formulas_are_escaped_when_asked(): void
+    {
+        $path = Fixtures::path('csv');
+        (new CsvWriter($path, escapeFormulas: true))
+            ->addRow(['=1+1', '+36 1 234 5678', '-5', '@SUM(A1)', "\tx", "\rx", 'plain', -5, Cell::text('=HYPERLINK("x")'), Cell::formula('=A1')])
+            ->close();
+
+        $this->assertSame("'=1+1,\"'+36 1 234 5678\",'-5,'@SUM(A1),\"'\tx\",\"'\rx\",plain,-5,\"'=HYPERLINK(\"\"x\"\")\",=A1\r\n", file_get_contents($path));
+    }
+
+    public function test_formulas_are_kept_verbatim_by_default(): void
+    {
+        $path = Fixtures::path('csv');
+        (new CsvWriter($path))->addRow(['=1+1', '-5'])->close();
+
+        $this->assertSame("=1+1,-5\r\n", file_get_contents($path));
     }
 
     public function test_exception_while_writing_leaves_no_files(): void

@@ -18,9 +18,17 @@ use Throwable;
 /**
  * Streams rows into a temporary file next to the target and renames it into place on close().
  * Styles and sheet options are ignored; CSV holds a single sheet.
+ *
+ * Spreadsheet applications run a CSV field that starts with "=", "+", "-" or "@" as a formula
+ * (CSV injection). With $escapeFormulas, every string value starting with one of those, a tab or
+ * a carriage return is written with a leading apostrophe, which Excel and LibreOffice hide and
+ * treat as "show as text". Cell::formula() values are explicit and stay verbatim.
  */
 final class CsvWriter implements Writer
 {
+    /** First characters that make a spreadsheet application evaluate a field. */
+    private const FORMULA_TRIGGERS = "=+-@\t\r";
+
     /** @var resource|null */
     private $handle = null;
 
@@ -34,6 +42,7 @@ final class CsvWriter implements Writer
         private readonly string $path,
         private readonly string $delimiter = ',',
         private readonly bool $bom = false,
+        private readonly bool $escapeFormulas = false,
     ) {
         if (strlen($delimiter) !== 1) {
             throw new InvalidArgumentException('The CSV delimiter must be a single byte.');
@@ -70,7 +79,7 @@ final class CsvWriter implements Writer
             $fields = [];
 
             foreach ($values as $value) {
-                $fields[] = $this->map($value);
+                $fields[] = $this->map($value, count($fields) + 1);
             }
 
             if (fputcsv($handle, $fields, $this->delimiter, '"', '', "\r\n") === false) {
@@ -176,19 +185,27 @@ final class CsvWriter implements Writer
         $this->closed = true;
     }
 
-    private function map(int|float|string|bool|DateTimeInterface|Cell|null $value): string
+    /**
+     * @throws InvalidArgumentException when the value cannot be written
+     */
+    private function map(mixed $value, int $column): string
     {
         if ($value instanceof Cell) {
+            if ($value->kind === Cell::KIND_FORMULA && is_string($value->value)) {
+                return $value->value;
+            }
+
             $value = $value->value;
         }
 
         return match (true) {
+            is_string($value) => $this->escapeFormulas && $value !== '' && str_contains(self::FORMULA_TRIGGERS, $value[0]) ? "'".$value : $value,
             $value === null => '',
             is_bool($value) => $value ? '1' : '0',
             is_int($value) => (string) $value,
             is_float($value) => $this->float($value),
             $value instanceof DateTimeInterface => $value->format($value->format('His') === '000000' ? 'Y-m-d' : 'Y-m-d H:i:s'),
-            default => $value,
+            default => throw new InvalidArgumentException(sprintf('Unsupported cell value of type %s in column %d.', get_debug_type($value), $column)),
         };
     }
 
@@ -197,6 +214,10 @@ final class CsvWriter implements Writer
      */
     private function float(float $value): string
     {
+        if (! is_finite($value)) {
+            throw new InvalidArgumentException('Spreadsheet numbers must be finite; got '.var_export($value, true).'.');
+        }
+
         $text = var_export($value, true);
 
         return str_ends_with($text, '.0') ? substr($text, 0, -2) : $text;
