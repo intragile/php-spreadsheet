@@ -27,6 +27,9 @@ final class SharedStringTable
 
     private const READ_BLOCK_BYTES = 65536;
 
+    /** Offsets read at once: 512 entries, small enough that a random lookup stays cheap. */
+    private const OFFSET_BLOCK_BYTES = 4096;
+
     /** @var list<string> */
     private array $memory = [];
 
@@ -128,7 +131,17 @@ final class SharedStringTable
             $this->flush();
         }
 
-        $offset = $this->offsetOf($index);
+        // Inlined offset lookup: this runs once per spilled cell.
+        $position = $index * self::OFFSET_BYTES;
+        $start = $position - $this->offsetBlockStart;
+
+        if ($start < 0 || $start + self::OFFSET_BYTES > strlen($this->offsetBlock)) {
+            $start = $this->loadOffsetBlock($position);
+        }
+
+        /** @var array{1: int} $unpacked */
+        $unpacked = unpack('J', $this->offsetBlock, $start);
+        $offset = $unpacked[1];
 
         // Cells mostly refer to strings in table order, so a read-ahead block serves most lookups.
         $start = $offset - $this->blockStart;
@@ -236,26 +249,17 @@ final class SharedStringTable
     }
 
     /**
-     * Data file offset of the $index-th spilled entry.
+     * Reads the block of the offset file holding byte $position; the block may be short when it
+     * was read before later entries were added. Returns $position relative to the block.
      */
-    private function offsetOf(int $index): int
+    private function loadOffsetBlock(int $position): int
     {
-        $position = $index * self::OFFSET_BYTES;
-        $start = $position - $this->offsetBlockStart;
+        $blockStart = $position - $position % self::OFFSET_BLOCK_BYTES;
+        $total = $this->spilledCount * self::OFFSET_BYTES;
+        $this->offsetBlock = $this->readAt($this->index, $blockStart, min(self::OFFSET_BLOCK_BYTES, $total - $blockStart));
+        $this->offsetBlockStart = $blockStart;
 
-        // The block may be short when it was read before later entries were added.
-        if ($start < 0 || $start + self::OFFSET_BYTES > strlen($this->offsetBlock)) {
-            $blockStart = $position - $position % self::READ_BLOCK_BYTES;
-            $total = $this->spilledCount * self::OFFSET_BYTES;
-            $this->offsetBlock = $this->readAt($this->index, $blockStart, min(self::READ_BLOCK_BYTES, $total - $blockStart));
-            $this->offsetBlockStart = $blockStart;
-            $start = $position - $blockStart;
-        }
-
-        /** @var array{1: int} $unpacked */
-        $unpacked = unpack('J', $this->offsetBlock, $start);
-
-        return $unpacked[1];
+        return $position - $blockStart;
     }
 
     private function loadBlock(int $offset): void
