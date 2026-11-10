@@ -13,6 +13,8 @@ use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
 use IntrAgile\Spreadsheet\Internal\Date\IsoDate;
 use IntrAgile\Spreadsheet\Internal\Date\SerialDate;
 use IntrAgile\Spreadsheet\Internal\HeaderKeyedRows;
+use IntrAgile\Spreadsheet\Internal\Ooxml\StyleSheet;
+use IntrAgile\Spreadsheet\Internal\Ooxml\Workbook;
 use IntrAgile\Spreadsheet\Internal\Xml\SafeXmlReader;
 use IntrAgile\Spreadsheet\Internal\Zip\SafeZip;
 use IntrAgile\Spreadsheet\ReadOptions;
@@ -36,11 +38,6 @@ final class XlsxReader implements Reader
 {
     use HeaderKeyedRows;
 
-    private const RELATIONSHIP_NAMESPACES = [
-        'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
-        'http://purl.oclc.org/ooxml/officeDocument/relationships',
-    ];
-
     /** Integers beyond ±2^53 lose precision as float, so they stay float to say so. */
     private const MAX_EXACT_INT = 9007199254740992;
 
@@ -49,15 +46,6 @@ final class XlsxReader implements Reader
 
     /** Distinct date serials remembered per pass; real sheets repeat a limited set of days. */
     private const DATE_CACHE_SIZE = 4096;
-
-    /** Largest workbook, relationships or styles part; real ones stay far below a megabyte. */
-    private const MAX_METADATA_BYTES = 67_108_864;
-
-    /** Most sheets a workbook may declare. */
-    private const MAX_SHEETS = 4096;
-
-    /** Most cell formats (xf) or number formats a styles part may declare; Excel allows about 64,000. */
-    private const MAX_STYLE_RECORDS = 65_536;
 
     /** @var list<array{name: string, part: string|null, visible: bool}> */
     private array $sheets = [];
@@ -85,17 +73,13 @@ final class XlsxReader implements Reader
         $zip = $this->open();
 
         try {
-            $workbook = self::mainPart($zip) ?? throw new CorruptFile('The workbook part is missing.');
-            $relationships = self::relationships($zip, self::relationshipsPath($workbook));
-            $this->readWorkbook($zip, $workbook, $relationships);
+            $workbook = Workbook::read($zip);
+            $this->sheets = $workbook->sheets;
+            $this->date1904 = $workbook->date1904;
+            $this->sharedStringsPart = $workbook->sharedStringsPart;
 
-            $sharedStrings = self::partOfType($zip, $relationships, 'sharedStrings') ?? self::sibling($workbook, 'sharedStrings.xml');
-            $this->sharedStringsPart = $zip->has($sharedStrings) ? $sharedStrings : null;
-
-            $styles = self::partOfType($zip, $relationships, 'styles') ?? self::sibling($workbook, 'styles.xml');
-
-            if ($zip->has($styles)) {
-                $this->readStyles($zip, $styles);
+            if ($workbook->stylesPart !== null) {
+                $this->dateStyles = StyleSheet::dateStyles($zip, $workbook->stylesPart);
             }
         } finally {
             $zip->close();
@@ -636,255 +620,8 @@ final class XlsxReader implements Reader
         return implode(', ', array_map(static fn (array $sheet): string => '"'.$sheet['name'].'"', $this->sheets));
     }
 
-    /**
-     * @param  list<array{id: string, type: string, target: string}>  $relationships
-     */
-    private function readWorkbook(SafeZip $zip, string $workbook, array $relationships): void
-    {
-        $targets = [];
-
-        foreach ($relationships as $relationship) {
-            $targets[$relationship['id']] = $relationship['target'];
-        }
-
-        $xml = $zip->xmlReader($workbook, self::MAX_METADATA_BYTES);
-
-        try {
-            while ($xml->read()) {
-                if ($xml->nodeType() !== XMLReader::ELEMENT) {
-                    continue;
-                }
-
-                $name = $xml->localName();
-
-                if ($name === 'workbookPr') {
-                    $this->date1904 = in_array(strtolower(trim((string) $xml->attribute('date1904'))), ['1', 'true'], true);
-                } elseif ($name === 'sheet') {
-                    if (count($this->sheets) >= self::MAX_SHEETS) {
-                        throw new LimitExceeded(sprintf('The workbook has more than %d sheets.', self::MAX_SHEETS));
-                    }
-
-                    $id = null;
-
-                    foreach (self::RELATIONSHIP_NAMESPACES as $namespace) {
-                        $id ??= $xml->attribute('id', $namespace);
-                    }
-
-                    $state = $xml->attribute('state');
-
-                    $part = $id !== null ? ($targets[$id] ?? null) : null;
-
-                    $this->sheets[] = [
-                        'name' => (string) $xml->attribute('name'),
-                        'part' => $part !== null && $zip->has($part) ? $part : null,
-                        'visible' => $state !== 'hidden' && $state !== 'veryHidden',
-                    ];
-                }
-            }
-        } finally {
-            $xml->close();
-        }
-    }
-
-    /**
-     * Builds the xf index => date map from the number formats and cell formats (cellXfs) of the
-     * styles part. Conditional formats (dxfs) carry their own numFmt elements, which are ignored.
-     */
-    private function readStyles(SafeZip $zip, string $part): void
-    {
-        $xml = $zip->xmlReader($part, self::MAX_METADATA_BYTES);
-        /** @var array<int, bool> $custom numFmtId => is a date */
-        $custom = [];
-        /** @var list<int> $cellFormats numFmtId of each xf */
-        $cellFormats = [];
-        $numFmtsDepth = null;
-        $cellXfsDepth = null;
-
-        try {
-            while ($xml->read()) {
-                $nodeType = $xml->nodeType();
-
-                if ($nodeType === XMLReader::END_ELEMENT) {
-                    if ($xml->depth() === $numFmtsDepth) {
-                        $numFmtsDepth = null;
-                    } elseif ($xml->depth() === $cellXfsDepth) {
-                        $cellXfsDepth = null;
-                    }
-
-                    continue;
-                }
-
-                if ($nodeType !== XMLReader::ELEMENT) {
-                    continue;
-                }
-
-                $name = $xml->localName();
-
-                if ($name === 'numFmts') {
-                    $numFmtsDepth = $xml->isEmptyElement() ? null : $xml->depth();
-                } elseif ($name === 'numFmt' && $numFmtsDepth !== null && $xml->depth() === $numFmtsDepth + 1) {
-                    $id = self::unsignedInt($xml->attribute('numFmtId'));
-
-                    if ($id !== null) {
-                        if (count($custom) >= self::MAX_STYLE_RECORDS && ! isset($custom[$id])) {
-                            throw new LimitExceeded(sprintf('The styles part declares more than %d number formats.', self::MAX_STYLE_RECORDS));
-                        }
-
-                        $custom[$id] = NumberFormats::isDate((string) $xml->attribute('formatCode'));
-                    }
-                } elseif ($name === 'cellXfs') {
-                    $cellXfsDepth = $xml->isEmptyElement() ? null : $xml->depth();
-                } elseif ($name === 'xf' && $cellXfsDepth !== null && $xml->depth() === $cellXfsDepth + 1) {
-                    if (count($cellFormats) >= self::MAX_STYLE_RECORDS) {
-                        throw new LimitExceeded(sprintf('The styles part declares more than %d cell formats.', self::MAX_STYLE_RECORDS));
-                    }
-
-                    // Every xf keeps its position, as cells refer to it by index; a missing id means General.
-                    $cellFormats[] = self::unsignedInt($xml->attribute('numFmtId')) ?? 0;
-                }
-            }
-        } finally {
-            $xml->close();
-        }
-
-        foreach ($cellFormats as $index => $numFmtId) {
-            if ($custom[$numFmtId] ?? NumberFormats::isBuiltInDate($numFmtId)) {
-                $this->dateStyles[$index] = true;
-            }
-        }
-    }
-
     private function open(): SafeZip
     {
         return SafeZip::open($this->path, $this->options->maxZipEntries, $this->options->maxUncompressedBytes, $this->options->maxCompressionRatio);
-    }
-
-    /**
-     * The package's main part, through _rels/.rels, falling back to the conventional path.
-     */
-    private static function mainPart(SafeZip $zip): ?string
-    {
-        return self::partOfType($zip, self::relationships($zip, '_rels/.rels'), 'officeDocument')
-            ?? ($zip->has('xl/workbook.xml') ? 'xl/workbook.xml' : null);
-    }
-
-    /**
-     * The first existing target of a relationship type. Types are matched on their last path
-     * segment, so both transitional and strict OOXML relationship URIs are recognised.
-     *
-     * @param  list<array{id: string, type: string, target: string}>  $relationships
-     */
-    private static function partOfType(SafeZip $zip, array $relationships, string $type): ?string
-    {
-        foreach ($relationships as $relationship) {
-            if (str_ends_with($relationship['type'], '/'.$type) && $zip->has($relationship['target'])) {
-                return $relationship['target'];
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Internal relationships in document order, with targets resolved to package paths.
-     *
-     * @return list<array{id: string, type: string, target: string}>
-     */
-    private static function relationships(SafeZip $zip, string $relsPath): array
-    {
-        if (! $zip->has($relsPath)) {
-            return [];
-        }
-
-        $directory = dirname($relsPath, 2);
-        $base = $directory === '.' ? '' : $directory.'/';
-        $xml = $zip->xmlReader($relsPath, self::MAX_METADATA_BYTES);
-        $entries = [];
-
-        try {
-            while ($xml->read()) {
-                if ($xml->nodeType() !== XMLReader::ELEMENT || $xml->localName() !== 'Relationship') {
-                    continue;
-                }
-
-                $id = $xml->attribute('Id');
-                $target = $xml->attribute('Target');
-
-                if ($id === null || $target === null || strcasecmp((string) $xml->attribute('TargetMode'), 'External') === 0) {
-                    continue;
-                }
-
-                $resolved = self::resolve($base, rawurldecode($target));
-
-                if ($resolved !== null) {
-                    $entries[] = ['id' => $id, 'type' => (string) $xml->attribute('Type'), 'target' => $resolved];
-                }
-            }
-        } finally {
-            $xml->close();
-        }
-
-        return $entries;
-    }
-
-    private static function resolve(string $base, string $target): ?string
-    {
-        $path = str_starts_with($target, '/') ? substr($target, 1) : $base.$target;
-        $segments = [];
-
-        foreach (explode('/', str_replace('\\', '/', $path)) as $segment) {
-            if ($segment === '' || $segment === '.') {
-                continue;
-            }
-
-            if ($segment === '..') {
-                if ($segments === []) {
-                    return null;
-                }
-
-                array_pop($segments);
-
-                continue;
-            }
-
-            $segments[] = $segment;
-        }
-
-        return $segments === [] ? null : implode('/', $segments);
-    }
-
-    /**
-     * "xl/workbook.xml" keeps its relationships in "xl/_rels/workbook.xml.rels".
-     */
-    private static function relationshipsPath(string $part): string
-    {
-        $slash = strrpos($part, '/');
-
-        return $slash === false
-            ? '_rels/'.$part.'.rels'
-            : substr($part, 0, $slash).'/_rels/'.substr($part, $slash + 1).'.rels';
-    }
-
-    private static function sibling(string $part, string $name): string
-    {
-        $slash = strrpos($part, '/');
-
-        return $slash === false ? $name : substr($part, 0, $slash + 1).$name;
-    }
-
-    /**
-     * A plain non-negative decimal integer within 32 bits, or null.
-     */
-    private static function unsignedInt(?string $value): ?int
-    {
-        $value = trim((string) $value);
-
-        if ($value === '' || strlen($value) > 10 || ! ctype_digit($value)) {
-            return null;
-        }
-
-        $number = (int) $value;
-
-        return $number <= 0xFFFFFFFF ? $number : null;
     }
 }
