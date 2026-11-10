@@ -259,9 +259,17 @@ final class OdsReader implements Reader
                     $name = $x->localName;
 
                     if ($name === 'table-cell' || $name === 'covered-table-cell') {
-                        $repeat = self::repeat($x->getAttributeNs('number-columns-repeated', self::NS_TABLE));
                         $value = null;
-                        $type = $x->getAttributeNs('value-type', self::NS_OFFICE);
+
+                        // A bare <table:table-cell/> is common in sparse sheets; it skips both lookups.
+                        if ($x->hasAttributes) {
+                            $repeat = self::repeat($x->getAttributeNs('number-columns-repeated', self::NS_TABLE));
+                            $type = $x->getAttributeNs('value-type', self::NS_OFFICE);
+                        } else {
+                            $repeat = 1;
+                            $type = null;
+                        }
+
                         $empty = $x->isEmptyElement;
                         $text = false;
 
