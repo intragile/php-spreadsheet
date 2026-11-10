@@ -429,7 +429,7 @@ final class OdsReader implements Reader
                 throw new CorruptFile('The table ends before </table:table>.');
             }
         } finally {
-            $xml?->close();
+            $xml?->abandon();
 
             if (array_key_exists($id, $this->archives)) {
                 unset($this->archives[$id]);
@@ -587,17 +587,13 @@ final class OdsReader implements Reader
             throw new CorruptFile(sprintf('The %s count "%s" is not a positive integer.', $attribute, $value));
         }
 
-        if (strlen($value) > 12) {
-            $digits = ltrim($value, '0');
+        $digits = strlen($value) > 12 ? ltrim($value, '0') : $value;
 
-            if (strlen($digits) > 12) {
-                return self::MAX_REPEAT;
-            }
-
-            $value = $digits;
+        if (strlen($digits) > 12) {
+            return self::MAX_REPEAT;
         }
 
-        $count = (int) $value;
+        $count = (int) $digits;
 
         if ($count < 1) {
             throw new CorruptFile(sprintf('The %s count "%s" is not a positive integer.', $attribute, $value));

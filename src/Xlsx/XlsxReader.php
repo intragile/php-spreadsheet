@@ -381,7 +381,7 @@ final class XlsxReader implements Reader
                 throw new CorruptFile('The worksheet ends before </sheetData>.');
             }
         } finally {
-            $xml?->close();
+            $xml?->abandon();
 
             if (array_key_exists($id, $this->archives)) {
                 unset($this->archives[$id]);
@@ -473,7 +473,7 @@ final class XlsxReader implements Reader
 
             throw $exception;
         } finally {
-            $xml->close();
+            $xml->abandon();
         }
 
         return $table;

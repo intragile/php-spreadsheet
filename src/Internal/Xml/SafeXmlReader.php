@@ -208,6 +208,20 @@ final class SafeXmlReader
     }
 
     /**
+     * Closes a reader whose caller is leaving in the middle of its own step, typically on an
+     * exception, taking the errors that step left in the process-wide list along so another open
+     * reader does not inherit them.
+     */
+    public function abandon(): void
+    {
+        if (! $this->closed) {
+            $this->collectErrors();
+        }
+
+        $this->close();
+    }
+
+    /**
      * Moves the errors libxml recorded since the last check to this reader, emptying the
      * process-wide list, and reports whether this reader has met a fatal error. Callers of raw()
      * use it after their own steps, before handing control elsewhere, so an error is always

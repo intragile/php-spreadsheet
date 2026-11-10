@@ -324,6 +324,31 @@ final class SafeXmlReaderTest extends TestCase
         $bad->read();
     }
 
+    public function test_abandoning_a_reader_mid_step_takes_its_own_pending_error_along(): void
+    {
+        $good = SafeXmlReader::fromString('<a><b>1</b><b>2</b></a>');
+        $good->read();
+        $bad = SafeXmlReader::fromString('<a>'.str_repeat('<b>x</b>', 20_000).'<b>');
+        $raw = $bad->raw();
+        $bad->read();
+
+        while ($raw->read()) {
+            if (libxml_get_last_error() !== false) {
+                break; // An exception thrown here would leave the error uncollected.
+            }
+        }
+
+        $bad->abandon();
+
+        $names = [];
+
+        while ($good->read()) {
+            $names[] = $good->localName();
+        }
+
+        $this->assertContains('b', $names);
+    }
+
     public function test_internal_error_state_is_restored(): void
     {
         $before = libxml_use_internal_errors(false);

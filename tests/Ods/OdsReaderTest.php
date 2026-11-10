@@ -629,6 +629,7 @@ final class OdsReaderTest extends TestCase
     public function test_non_digit_or_zero_repeat_is_corrupt(string $value): void
     {
         $this->expectException(CorruptFile::class);
+        $this->expectExceptionMessage('"'.$value.'"');
 
         $this->readXml('<table:table-row table:number-rows-repeated="'.$value.'"><table:table-cell office:value-type="float" office:value="1"/></table:table-row>');
     }
