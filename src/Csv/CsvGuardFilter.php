@@ -12,9 +12,10 @@ use php_user_filter;
  * fgetcsv() buffers them: a stray quote would otherwise turn the rest of the file into one field.
  *
  * It follows the record structure the way fgetcsv() does: an enclosure opens a quoted field only
- * at the start of a field (after optional spaces and tabs), a doubled enclosure inside a quoted
- * field is literal, and only a line feed outside quotes ends a record. Field sizes are counted in
- * raw bytes including enclosures. Regions without an enclosure are handled a line at a time.
+ * at the start of a field (after optional spaces, tabs, vertical tabs, form feeds or carriage
+ * returns), a doubled enclosure inside a quoted field is literal, and only a line feed outside
+ * quotes ends a record. Field sizes are counted in raw bytes including enclosures. Regions
+ * without an enclosure are handled a line at a time.
  *
  * @internal
  */
@@ -36,7 +37,7 @@ final class CsvGuardFilter extends php_user_filter
 
     private string $enclosure = '"';
 
-    private string $blanks = " \t";
+    private string $blanks = " \t\v\f\r";
 
     private int $maxFieldBytes = PHP_INT_MAX;
 
@@ -73,7 +74,7 @@ final class CsvGuardFilter extends php_user_filter
         $this->enclosure = $params['enclosure'];
         $this->maxFieldBytes = $params['maxFieldBytes'];
         $this->maxFields = $params['maxFields'];
-        $this->blanks = str_replace($this->delimiter, '', " \t");
+        $this->blanks = str_replace($this->delimiter, '', " \t\v\f\r");
 
         $d = preg_quote($this->delimiter, '/');
         $e = preg_quote($this->enclosure, '/');

@@ -13,6 +13,7 @@ use IntrAgile\Spreadsheet\Tests\Support\Fixtures;
 use IntrAgile\Spreadsheet\Tests\Support\TestCase;
 use InvalidArgumentException;
 use LogicException;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 final class CsvReaderTest extends TestCase
 {
@@ -151,6 +152,38 @@ final class CsvReaderTest extends TestCase
 
             $this->assertLessThan(8 * 1024 * 1024, $growth);
         });
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function blanksBeforeAnEnclosure(): iterable
+    {
+        yield 'form feed' => ["\f"];
+        yield 'vertical tab' => ["\v"];
+        yield 'carriage return' => ["\r"];
+        yield 'space and tab' => [" \t"];
+    }
+
+    #[DataProvider('blanksBeforeAnEnclosure')]
+    public function test_any_blank_before_a_stray_quote_is_bounded(string $blank): void
+    {
+        $path = Fixtures::file("a,b\n1,{$blank}\"unterminated\n".str_repeat(str_repeat('x,', 50)."\n", 200), 'csv');
+
+        self::withoutPhpErrors(function () use ($path): void {
+            $this->expectException(LimitExceeded::class);
+            $this->expectExceptionMessage('64 bytes');
+
+            iterator_to_array((new CsvReader($path, new ReadOptions(csvDelimiter: ',', maxCellBytes: 64)))->rows());
+        });
+    }
+
+    #[DataProvider('blanksBeforeAnEnclosure')]
+    public function test_a_quoted_field_after_blanks_is_read_like_fgetcsv(string $blank): void
+    {
+        $path = Fixtures::file("a,b\n1,{$blank}\"x,y\"\n2,z\n", 'csv');
+
+        $rows = iterator_to_array((new CsvReader($path, new ReadOptions(csvDelimiter: ',', maxCellBytes: 64)))->rows());
+
+        $this->assertSame([1 => ['a', 'b'], 2 => ['1', 'x,y'], 3 => ['2', 'z']], $rows);
     }
 
     public function test_a_record_with_more_than_16384_fields_is_refused(): void
