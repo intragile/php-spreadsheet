@@ -171,9 +171,10 @@ final class CsvReader implements Reader
     }
 
     /**
-     * Applies a named encoding to the byte-order mark found in the file: the mark is skipped when
-     * it belongs to that encoding, and it decides the byte order when the name leaves it open
-     * ("UTF-16", "UCS-2", "UTF-32", "UCS-4"). A mark of another encoding is left in the data.
+     * Applies a named encoding to what the sniffer found: a byte-order mark is skipped when it
+     * belongs to that encoding, and the mark, or the detected order of an unmarked UTF-16 or
+     * UTF-32 file, decides the byte order when the name leaves it open ("UTF-16", "UCS-2",
+     * "UTF-32", "UCS-4"). A mark of another encoding is left in the data.
      *
      * @return array{string, int} encoding and number of bytes to skip
      */
@@ -183,13 +184,16 @@ final class CsvReader implements Reader
             return [$sniffed->encoding, $sniffed->bomLength];
         }
 
-        if ($sniffed->bomLength > 0) {
-            $canonical = CsvDecoder::canonical($named);
+        $canonical = CsvDecoder::canonical($named);
 
-            if ($canonical === $sniffed->encoding
-                || (($canonical === 'UTF-16' || $canonical === 'UTF-32') && str_starts_with($sniffed->encoding, $canonical))) {
-                return [$sniffed->encoding, $sniffed->bomLength];
-            }
+        // A name without byte order takes the order of the mark, or of an unmarked file the sniffer
+        // recognised as UTF-16 or UTF-32; the mark is skipped when it belongs to the named encoding.
+        if (($canonical === 'UTF-16' || $canonical === 'UTF-32') && str_starts_with($sniffed->encoding, $canonical)) {
+            return [$sniffed->encoding, $sniffed->bomLength];
+        }
+
+        if ($sniffed->bomLength > 0 && $canonical === $sniffed->encoding) {
+            return [$sniffed->encoding, $sniffed->bomLength];
         }
 
         return [$named, 0];

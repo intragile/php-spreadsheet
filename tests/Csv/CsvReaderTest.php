@@ -47,6 +47,35 @@ final class CsvReaderTest extends TestCase
         $this->assertSame(['5', 'Szőlős', '1000000', '2026-11-10', 'HAMIS', 'utolsó', '007', '@mention'], $rows[6]);
     }
 
+    /** @return iterable<string, array{string}> */
+    public static function windows1250TextWithMacLookingBytes(): iterable
+    {
+        // Typographic punctuation, Polish and Czech letters share bytes with Mac Central European letters.
+        yield 'smart punctuation and accents' => ["Cég;Megjegyzés\nMcDonald’s;Domino’s, Wendy’s — „akció”\n"];
+        yield 'smart punctuation only' => ["Name;Note\nO’Brien;Don’t panic…\n"];
+        yield 'Polish' => ["Gęś Wieś;Źródlana\nŚląsk;Częstochowa\n"];
+        yield 'Czech place names' => ["Žilina;Žďár\nBrno;Plzeň\n"];
+    }
+
+    #[DataProvider('windows1250TextWithMacLookingBytes')]
+    public function test_windows_1250_text_is_not_mistaken_for_the_mac_code_page(string $text): void
+    {
+        $path = Fixtures::file((string) iconv('UTF-8', 'Windows-1250', $text), 'csv');
+
+        $rows = iterator_to_array((new CsvReader($path, new ReadOptions))->rows());
+
+        $this->assertSame(array_map(static fn (string $line): array => explode(';', $line), explode("\n", trim($text))), array_values($rows));
+    }
+
+    public function test_carriage_returns_in_a_line_feed_file_stay_data(): void
+    {
+        $rows = iterator_to_array((new CsvReader(Fixtures::file("a\rb\rc,d\n", 'csv'), new ReadOptions(csvDelimiter: ',')))->rows());
+        $this->assertSame([1 => ["a\rb\rc", 'd']], $rows);
+
+        $rows = iterator_to_array((new CsvReader(Fixtures::file("a,\"x\ry\",b", 'csv'), new ReadOptions(csvDelimiter: ',')))->rows());
+        $this->assertSame([1 => ['a', "x\ry", 'b']], $rows);
+    }
+
     public function test_carriage_return_line_endings_split_records_across_read_chunks(): void
     {
         $lines = ['id,name'];
@@ -197,6 +226,17 @@ final class CsvReaderTest extends TestCase
             2 => ['Árvíztűrő tükörfúrógép', '1 234,56', 'Győr'],
             3 => ['Őrmester Ügyfél', '99,5', 'Szőlős'],
         ], $rows);
+    }
+
+    public function test_an_encoding_without_byte_order_takes_the_detected_order_of_an_unmarked_file(): void
+    {
+        foreach (['UTF-16' => 'UTF-16LE', 'UCS-2' => 'UTF-16LE', 'UTF-32' => 'UTF-32LE'] as $named => $actual) {
+            $path = Fixtures::file(mb_convert_encoding("id;name\n1;Árpád\n", $actual, 'UTF-8'), 'csv');
+
+            $rows = iterator_to_array((new CsvReader($path, new ReadOptions(csvEncoding: $named)))->rows());
+
+            $this->assertSame([1 => ['id', 'name'], 2 => ['1', 'Árpád']], $rows, $named);
+        }
     }
 
     public function test_an_encoding_without_byte_order_and_without_a_mark_is_big_endian(): void

@@ -74,12 +74,15 @@ $reader = Spreadsheet::read(
   UTF-8-ra kell alakítani.
 - Az UTF-16-ot és az UTF-32-t bájtsorrend-jelzővel (BOM) és anélkül is felismeri; BOM nélkül a
   nullbájtok helyzetéből, ami túlnyomórészt latin betűs szövegnél működik. A bájtsorrend nélküli
-  `csvEncoding` (`UTF-16`, `UCS-2`, `UTF-32`, `UCS-4`) a sorrendet a BOM-ból veszi, BOM hiányában
-  big-endiant használ; az `UTF-16LE` és a hasonló nevek pontosan úgy érvényesülnek, ahogy meg vannak
-  adva.
-- Az Excel for Mac CSV-exportját is olvassa: a Mac Central European kódlapot felismeri (vagy
-  megadható: `csvEncoding: 'MacCentralEurope'`), a csak kocsivisszával tördelt „CSV Mac” formátumot
-  pedig rekordokra bontja. Az ilyen fájlban az idézett mezőn belüli kocsivissza `\n` lesz.
+  `csvEncoding` (`UTF-16`, `UCS-2`, `UTF-32`, `UCS-4`) a sorrendet a BOM-ból, BOM nélkül a felismert
+  sorrendből veszi, végső esetben big-endiant használ; az `UTF-16LE` és a hasonló nevek pontosan úgy
+  érvényesülnek, ahogy meg vannak adva.
+- Az Excel for Mac CSV-exportját is olvassa. A Mac Central European kódlapot akkor ismeri fel, ha
+  a szövegben elég magyar `á` és `é` van ahhoz, hogy megkülönböztesse a Windows-1250-től, amely az
+  alapértelmezés marad; más szövegnél adjuk meg: `csvEncoding: 'MacCentralEurope'`. A csak
+  kocsivisszával tördelt „CSV Mac” formátumot rekordokra bontja (akkor ismeri fel, ha az idézett
+  mezőkön kívül van magányos kocsivissza és nincs soremelés); az ilyen fájlban az idézett mezőn
+  belüli kocsivissza `\n` lesz.
 - A `maxCellBytes` a nyers CSV-bájtokat számolja, a határoló idézőjelekkel együtt. Kis korlát a
   szokásos soroknál nem lassít; a korláttal nagyjából egyező vagy hosszabb sorokat bájtonként
   ellenőrzi, ezek kb. kétszer lassabban olvashatók.

@@ -72,12 +72,14 @@ $reader = Spreadsheet::read(
   (Shift_JIS, GBK, Big5, EUC-KR) throw `InvalidArgumentException`; convert such files to UTF-8 first.
 - UTF-16 and UTF-32 are detected with or without a byte-order mark (without one, from the position
   of the zero bytes, which works for text that is mostly Latin script). A `csvEncoding` without a
-  byte order (`UTF-16`, `UCS-2`, `UTF-32`, `UCS-4`) takes it from the mark and falls back to
-  big-endian when there is none; `UTF-16LE` and the like are used as given.
-- CSV exported by Excel for Mac is read as well: its Mac Central European code page is detected
-  (or name it with `csvEncoding: 'MacCentralEurope'`), and the "CSV Mac" format, whose lines end with
-  a bare carriage return, is split into records. In such files a carriage return inside a quoted
-  field becomes `\n`.
+  byte order (`UTF-16`, `UCS-2`, `UTF-32`, `UCS-4`) takes it from the mark or, without one, from the
+  detected order, and falls back to big-endian; `UTF-16LE` and the like are used as given.
+- CSV exported by Excel for Mac is read as well. Its Mac Central European code page is detected
+  when the text has enough Hungarian `á` and `é` to tell it from Windows-1250, which stays the
+  default; for other text name it with `csvEncoding: 'MacCentralEurope'`. The "CSV Mac" format, whose
+  lines end with a bare carriage return, is split into records (detected when, outside quoted fields,
+  there are bare carriage returns and no line feed); a carriage return inside a quoted field of such
+  a file becomes `\n`.
 - `maxCellBytes` counts raw CSV bytes including enclosures. A small limit costs no speed on ordinary
   rows; rows about as long as the limit or longer are checked byte by byte and read about 2x slower.
 

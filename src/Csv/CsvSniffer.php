@@ -15,12 +15,6 @@ final class CsvSniffer
 
     private const MAX_RECORDS = 20;
 
-    /** Bytes of the Hungarian accented letters (áéíóöőúüű and capitals) in Windows-1250. */
-    private const WINDOWS_1250_LETTERS = "\xC1\xC9\xCD\xD3\xD5\xD6\xDA\xDB\xDC\xE1\xE9\xED\xF3\xF5\xF6\xFA\xFB\xFC";
-
-    /** Bytes of the same letters in Mac OS Central European. */
-    private const MAC_CENTRAL_EUROPE_LETTERS = "\x83\x85\x86\x87\x8E\x92\x97\x9A\x9C\x9F\xCC\xCE\xE7\xEA\xEE\xF2\xF4\xF5";
-
     public function sniff(string $path, int $sampleBytes = 65_536): CsvDialect
     {
         $sample = is_file($path) && is_readable($path) ? @file_get_contents($path, false, null, 0, max(1, $sampleBytes)) : false;
@@ -37,13 +31,35 @@ final class CsvSniffer
 
     /**
      * Whether records end with a bare carriage return (classic Mac OS, Excel for Mac's "CSV Mac"):
-     * bare carriage returns outnumber line feeds, which then only occur inside quoted fields.
+     * outside quoted fields there are at least two bare carriage returns and no line feed. Line
+     * breaks inside quoted fields do not count, as they are cell data in either convention.
      */
     public static function hasCarriageReturnLines(string $text): bool
     {
-        $bare = substr_count($text, "\r") - substr_count($text, "\r\n");
+        if (! str_contains($text, "\r")) {
+            return false;
+        }
 
-        return $bare > 0 && $bare > substr_count($text, "\n");
+        $bare = 0;
+        $quoted = false;
+
+        for ($i = 0, $length = strlen($text); $i < $length; $i++) {
+            $char = $text[$i];
+
+            if ($char === '"') {
+                $quoted = ! $quoted;
+            } elseif (! $quoted) {
+                if ($char === "\n") {
+                    return false;
+                }
+
+                if ($char === "\r" && ($text[$i + 1] ?? '') !== "\n") {
+                    $bare++;
+                }
+            }
+        }
+
+        return $bare >= 2;
     }
 
     /**
@@ -83,9 +99,13 @@ final class CsvSniffer
             return ['UTF-8', 0];
         }
 
-        // Excel for Mac writes CSV in the Mac code page instead: the one in which more bytes are
-        // Hungarian accented letters wins.
-        if (self::letterCount($sample, self::MAC_CENTRAL_EUROPE_LETTERS) > self::letterCount($sample, self::WINDOWS_1250_LETTERS)) {
+        // Excel for Mac writes CSV in the Mac code page instead. Both code pages put Central European
+        // letters and punctuation on each other's bytes, so only a strong signal switches: "á" and
+        // "é", the most frequent Hungarian accented letters, are 0x87 and 0x8E there, but the rare
+        // "‡" and "Ž" in Windows-1250, where the same letters are 0xE1 and 0xE9.
+        $mac = substr_count($sample, "\x87") + substr_count($sample, "\x8E");
+
+        if ($mac >= 3 && $mac > 2 * (substr_count($sample, "\xE1") + substr_count($sample, "\xE9"))) {
             return ['MacCentralEurope', 0];
         }
 
@@ -140,17 +160,6 @@ final class CsvSniffer
         }
 
         return null;
-    }
-
-    private static function letterCount(string $sample, string $letters): int
-    {
-        $count = 0;
-
-        foreach (str_split($letters) as $letter) {
-            $count += substr_count($sample, $letter);
-        }
-
-        return $count;
     }
 
     private function isUtf8(string $sample): bool
