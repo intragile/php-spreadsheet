@@ -67,10 +67,16 @@ $reader = Spreadsheet::read(
 );
 ```
 
-- A más kódolású CSV-t veszteségmentesen alakítja UTF-8-ra: UTF-16 és UTF-32 (BOM-mal vagy anélkül),
-  valamint egybájtos kódlapok, például Windows-1250 vagy ISO-8859-2. A kódlapban nem definiált bájt
-  (például a `0x81` a Windows-1250-ben) `U+FFFD` karakter lesz, és nem hiúsítja meg az olvasást; más
-  többbájtos kódolás `InvalidArgumentException` kivételt ad.
+- A más kódolású CSV-t veszteségmentesen alakítja UTF-8-ra: UTF-16, UTF-32, valamint egybájtos
+  kódlapok, például Windows-1250 vagy ISO-8859-2. A kódlapban nem definiált bájt (például a `0x81` a
+  Windows-1250-ben) `U+FFFD` karakter lesz, és nem hiúsítja meg az olvasást. Más többbájtos kódolás
+  (Shift_JIS, GBK, Big5, EUC-KR) `InvalidArgumentException` kivételt ad; az ilyen fájlt előbb
+  UTF-8-ra kell alakítani.
+- Az UTF-16-ot és az UTF-32-t bájtsorrend-jelzővel (BOM) és anélkül is felismeri; BOM nélkül a
+  nullbájtok helyzetéből, ami túlnyomórészt latin betűs szövegnél működik. A bájtsorrend nélküli
+  `csvEncoding` (`UTF-16`, `UCS-2`, `UTF-32`, `UCS-4`) a sorrendet a BOM-ból veszi, BOM hiányában
+  big-endiant használ; az `UTF-16LE` és a hasonló nevek pontosan úgy érvényesülnek, ahogy meg vannak
+  adva.
 
 Hiányzó vagy olvashatatlan fájlnál `SpreadsheetException`, `.xls`, Numbers és PDF fájlnál
 `UnsupportedFormat` kivétel keletkezik.

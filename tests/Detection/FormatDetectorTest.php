@@ -56,4 +56,26 @@ final class FormatDetectorTest extends TestCase
 
         $this->assertSame(Format::Csv, FormatDetector::detect($path));
     }
+
+    public function test_utf16_and_utf32_text_without_a_mark_is_csv(): void
+    {
+        foreach (['UTF-16LE', 'UTF-16BE', 'UTF-32LE', 'UTF-32BE'] as $encoding) {
+            $path = Fixtures::file(mb_convert_encoding("a;b\nÁrvíztűrő;2\n", $encoding, 'UTF-8'));
+
+            $this->assertSame(Format::Csv, FormatDetector::detect($path), $encoding);
+        }
+    }
+
+    public function test_utf32_text_with_a_mark_is_csv(): void
+    {
+        $this->assertSame(Format::Csv, FormatDetector::detect(Fixtures::file("\x00\x00\xFE\xFF".mb_convert_encoding("a;b\n", 'UTF-32BE', 'UTF-8'))));
+        $this->assertSame(Format::Csv, FormatDetector::detect(Fixtures::file("\xFF\xFE\x00\x00".mb_convert_encoding("a;b\n", 'UTF-32LE', 'UTF-8'))));
+    }
+
+    public function test_binary_with_nul_bytes_is_not_csv(): void
+    {
+        $this->expectException(UnsupportedFormat::class);
+
+        FormatDetector::detect(Fixtures::file("\x7FELF\x02\x01\x01\x00".str_repeat("\x00\x01\x02\x03\xFF", 50)));
+    }
 }

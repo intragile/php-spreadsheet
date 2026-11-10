@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace IntrAgile\Spreadsheet\Detection;
 
+use IntrAgile\Spreadsheet\Csv\CsvSniffer;
 use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
 use IntrAgile\Spreadsheet\Exception\UnsupportedFormat;
 use IntrAgile\Spreadsheet\Format;
@@ -102,10 +103,10 @@ final class FormatDetector
 
     private static function looksLikeText(string $head): bool
     {
-        if (str_starts_with($head, "\xFF\xFE") || str_starts_with($head, "\xFE\xFF")) {
+        if (str_starts_with($head, "\xFF\xFE") || str_starts_with($head, "\xFE\xFF") || str_starts_with($head, "\x00\x00\xFE\xFF")) {
             return true;
         }
 
-        return ! str_contains($head, "\0");
+        return ! str_contains($head, "\0") || CsvSniffer::unicodeWithoutMark($head) !== null;
     }
 }

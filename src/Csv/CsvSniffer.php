@@ -55,6 +55,13 @@ final class CsvSniffer
             return ['UTF-16BE', 2];
         }
 
+        // NUL is valid UTF-8, so unmarked UTF-16 and UTF-32 must be recognised first.
+        $unmarked = self::unicodeWithoutMark($sample);
+
+        if ($unmarked !== null) {
+            return [$unmarked, 0];
+        }
+
         if ($this->isUtf8($sample)) {
             return ['UTF-8', 0];
         }
@@ -63,6 +70,53 @@ final class CsvSniffer
         // reliably (its letters share bytes with Windows-1250 and its 0x80-0x9F range is unused),
         // so it is only available through ReadOptions::csvEncoding.
         return ['Windows-1250', 0];
+    }
+
+    /**
+     * Recognises UTF-16 and UTF-32 without a byte-order mark by where the NUL bytes fall. Text in
+     * those encodings is mostly Latin or punctuation, so one byte of every UTF-16 code unit, and
+     * the upper two bytes of every UTF-32 one, are zero; CSV in any other encoding has no NULs.
+     */
+    public static function unicodeWithoutMark(string $sample): ?string
+    {
+        $length = strlen($sample) - strlen($sample) % 4;
+
+        if ($length < 4 || ! str_contains($sample, "\0")) {
+            return null;
+        }
+
+        $zeros = [0, 0, 0, 0];
+
+        for ($i = 0; $i < $length; $i++) {
+            if ($sample[$i] === "\0") {
+                $zeros[$i % 4]++;
+            }
+        }
+
+        $units = intdiv($length, 4);
+
+        // No code point exceeds U+10FFFF, so the most significant byte of a UTF-32 unit is zero.
+        if ($zeros[3] === $units && $zeros[2] >= 0.9 * $units && $zeros[0] < $units) {
+            return 'UTF-32LE';
+        }
+
+        if ($zeros[0] === $units && $zeros[1] >= 0.9 * $units && $zeros[3] < $units) {
+            return 'UTF-32BE';
+        }
+
+        $pairs = 2 * $units;
+        $even = $zeros[0] + $zeros[2];
+        $odd = $zeros[1] + $zeros[3];
+
+        if ($odd >= 0.5 * $pairs && $even <= 0.02 * $pairs) {
+            return 'UTF-16LE';
+        }
+
+        if ($even >= 0.5 * $pairs && $odd <= 0.02 * $pairs) {
+            return 'UTF-16BE';
+        }
+
+        return null;
     }
 
     private function isUtf8(string $sample): bool

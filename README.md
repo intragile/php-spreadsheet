@@ -66,10 +66,14 @@ $reader = Spreadsheet::read(
 );
 ```
 
-- CSV input in another encoding is decoded to UTF-8 losslessly: UTF-16 and UTF-32 (with or
-  without BOM) and single-byte code pages such as Windows-1250 or ISO-8859-2. A byte the code page
-  does not define (such as `0x81` in Windows-1250) becomes `U+FFFD` instead of failing the read;
-  other multi-byte encodings throw `InvalidArgumentException`.
+- CSV input in another encoding is decoded to UTF-8 losslessly: UTF-16 and UTF-32 and single-byte
+  code pages such as Windows-1250 or ISO-8859-2. A byte the code page does not define (such as
+  `0x81` in Windows-1250) becomes `U+FFFD` instead of failing the read. Other multi-byte encodings
+  (Shift_JIS, GBK, Big5, EUC-KR) throw `InvalidArgumentException`; convert such files to UTF-8 first.
+- UTF-16 and UTF-32 are detected with or without a byte-order mark (without one, from the position
+  of the zero bytes, which works for text that is mostly Latin script). A `csvEncoding` without a
+  byte order (`UTF-16`, `UCS-2`, `UTF-32`, `UCS-4`) takes it from the mark and falls back to
+  big-endian when there is none; `UTF-16LE` and the like are used as given.
 
 A missing or unreadable file throws `SpreadsheetException`; `.xls`, Numbers and PDF files throw
 `UnsupportedFormat`.

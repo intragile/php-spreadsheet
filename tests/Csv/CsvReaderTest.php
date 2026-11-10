@@ -140,6 +140,30 @@ final class CsvReaderTest extends TestCase
         $this->assertSame([1 => ['id', 'name'], 2 => ['1', 'Árpád 😀']], $rows);
     }
 
+    /** @return iterable<string, array{string}> */
+    public static function unicodeWithoutMarks(): iterable
+    {
+        yield 'UTF-16LE' => ['UTF-16LE'];
+        yield 'UTF-16BE' => ['UTF-16BE'];
+        yield 'UTF-32LE' => ['UTF-32LE'];
+        yield 'UTF-32BE' => ['UTF-32BE'];
+    }
+
+    #[DataProvider('unicodeWithoutMarks')]
+    public function test_utf16_and_utf32_without_a_mark_are_detected(string $encoding): void
+    {
+        $text = "Név;Összeg;Város\nÁrvíztűrő tükörfúrógép;1 234,56;Győr\nŐrmester Ügyfél;99,5;Szőlős\n";
+        $path = Fixtures::file(mb_convert_encoding($text, $encoding, 'UTF-8'), 'csv');
+
+        $rows = self::withoutPhpErrors(static fn (): array => iterator_to_array((new CsvReader($path, new ReadOptions))->rows()));
+
+        $this->assertSame([
+            1 => ['Név', 'Összeg', 'Város'],
+            2 => ['Árvíztűrő tükörfúrógép', '1 234,56', 'Győr'],
+            3 => ['Őrmester Ügyfél', '99,5', 'Szőlős'],
+        ], $rows);
+    }
+
     public function test_an_encoding_without_byte_order_and_without_a_mark_is_big_endian(): void
     {
         foreach (['UTF-16' => 'UTF-16BE', 'UTF-32' => 'UTF-32BE'] as $named => $actual) {
