@@ -144,6 +144,9 @@ $writer->close();                                   // a fájl záráskor, atomi
 - Az oszlopszélesség az Excel szélességegységében értendő (az alapbetűtípus karakterei a cella
   belső margójával együtt): az Excel oszlopszélesség-ablaka 0,83-dal kevesebbet mutat (a 12-ből
   11,17 lesz, Excel for Mac 16-tal ellenőrizve).
+  Az oszlopok szélessége nem igazodik a tartalomhoz, ezért az Excel `#####`-t mutat, ha a dátum nem
+  fér el az alapértelmezett szélességben: a dátumoszlopnak legalább 11, a dátum-idő oszlopnak 19
+  szélességet adjunk.
 - A `close()` a kész fájlt a célútvonalra nevezi át, a meglévő fájlt figyelmeztetés nélkül
   felülírva. Ha egy korábbi hiba megszakította az írást, a `close()` `LogicException` kivételt ad, és
   nem keletkezik fájl.
@@ -179,6 +182,25 @@ tartalmazó exportnál kapcsoljuk be. A `Cell::formula()`-val átadott értékek
 Az Excel a számnak vagy dátumnak látszó CSV-mezőket is átalakítja: a `00123`-ból `123`, az
 `1e5`-ből `1,00E+05`, a `2026-01-15`-ből dátum lesz. Ezt CSV-ben nem lehet megakadályozni; ha az
 ilyen szövegnek meg kell maradnia, XLSX-et írjunk.
+
+## Kompatibilitás irodai alkalmazásokkal
+
+Microsoft Excel for Mac 16.114-gyel ellenőrizve, macOS 15.7-en (magyar területi beállítással), a
+`tests/office/build-samples.php` mintakészletével és a mellette lévő AppleScript-ellenőrzőkkel:
+
+- Az XLSX és az ODS (sima és stílusos) javítási kérdés nélkül nyílik meg. A cellák pozíciója és
+  típusa helyes, a null-rések, dátumok, logikai értékek, többsoros szövegek és a számnak vagy
+  képletnek látszó szövegek (`00123`, `1e5`, `=1+1`) is. XLSX-ben látszik a szám- és dátumformátum, az
+  oszlopszélesség, a rögzített fejlécsor és az autoszűrő; a képleteket megnyitáskor mindkét
+  formátumban kiszámolja.
+- ODS Excelben: az autoszűrő látszik, a rögzített sor nem, mert az Excel ODS-támogatása nem ismeri a
+  rögzített ablaktáblát (a saját ODS-fájljaiba sem írja).
+- A `delimiter: ';', bom: true` beállítással írt CSV oszlopokra bontva, helyes ékezetekkel nyílik
+  meg; `,` elválasztóval magyar rendszeren nem bontja oszlopokra.
+- Az Excel által mentett fájlok (XLSX, valamint Mac kódlapú, CRLF vagy CR sorvégű CSV) helyes
+  értékekkel és típusokkal olvashatók vissza.
+
+Az Apple Numbers és a LibreOffice ellenőrzése még hátravan.
 
 ## Memória
 

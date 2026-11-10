@@ -138,6 +138,8 @@ $writer->close();                                   // the file appears atomical
   digits, so write IDs and account numbers as strings.
 - Column widths are in Excel's width unit (characters of the default font including cell padding):
   Excel's column-width dialog shows 0.83 less (12 shows as 11.17, checked with Excel for Mac 16).
+  Columns are not sized to their content, so Excel shows `#####` for a date that does not fit the
+  default width: give date columns a width of at least 11, and date-time columns 19.
 - `close()` renames the finished file onto the target path, replacing an existing file without
   warning. If an earlier error aborted the write, `close()` throws `LogicException` and no file is
   written.
@@ -173,6 +175,24 @@ as `Cell::formula()` stay unescaped.
 Excel also converts CSV fields that look like numbers or dates: `00123` becomes `123`, `1e5` becomes
 `1,00E+05` and `2026-01-15` becomes a date. CSV cannot prevent this; write XLSX when such text must
 survive.
+
+## Office application compatibility
+
+Checked with Microsoft Excel for Mac 16.114 on macOS 15.7 (Hungarian locale), using the sample set
+from `tests/office/build-samples.php` and the AppleScript inspectors next to it:
+
+- XLSX and ODS (plain and styled) open without a repair prompt. Cell positions and types are right,
+  including null gaps, dates, booleans, multi-line text and text that looks like a number or formula
+  (`00123`, `1e5`, `=1+1`). Number and date formats, column widths, the frozen header row and the
+  autofilter show in XLSX; formulas are calculated on open in both formats.
+- ODS in Excel: the autofilter shows, the frozen row does not, because Excel's ODS support has no
+  frozen panes (Excel does not write them in its own ODS files either).
+- CSV with `delimiter: ';', bom: true` opens split into columns with correct accents; with `,` it
+  does not split on a Hungarian system.
+- Files saved by Excel (XLSX, and CSV in the Mac code page with CRLF or CR line endings) read back
+  with the right values and types.
+
+Apple Numbers and LibreOffice have not been checked yet.
 
 ## Memory
 
