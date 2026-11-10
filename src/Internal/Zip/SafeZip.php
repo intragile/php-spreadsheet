@@ -68,8 +68,9 @@ final class SafeZip
             for ($index = 0; $index < $zip->numFiles; $index++) {
                 $stat = $zip->statIndex($index);
 
+                // An entry whose header cannot be read cannot be vetted, so the archive is refused.
                 if (! is_array($stat)) {
-                    continue;
+                    throw new CorruptFile(sprintf('The archive entry #%d cannot be read.', $index));
                 }
 
                 if ($stat['encryption_method'] !== ZipArchive::EM_NONE) {
@@ -197,18 +198,21 @@ final class SafeZip
         }
 
         $stat = $this->zip->statIndex($index);
+
+        if (! is_array($stat)) {
+            throw new CorruptFile(sprintf('The archive entry "%s" cannot be read.', $name));
+        }
+
         $limit = min($maxBytes, $this->maxUncompressedBytes);
 
-        if (is_array($stat) && $stat['size'] > $limit) {
+        if ($stat['size'] > $limit) {
             throw new LimitExceeded(sprintf('The archive entry "%s" declares %d bytes; the limit is %d.', $name, $stat['size'], $limit));
         }
 
         // Bytes actually produced are capped at the declared size (with a floor for tiny entries),
         // so a forged header cannot inflate far beyond what it claims. libzip may already refuse a
         // size mismatch itself; this cap is defence in depth.
-        if (is_array($stat)) {
-            $limit = min($limit, max($stat['size'], self::RATIO_FLOOR_BYTES));
-        }
+        $limit = min($limit, max($stat['size'], self::RATIO_FLOOR_BYTES));
 
         return new ByteBudget($limit);
     }

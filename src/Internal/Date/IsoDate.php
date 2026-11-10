@@ -23,7 +23,7 @@ final class IsoDate
      */
     public static function parse(string $raw): DateTimeImmutable
     {
-        if (preg_match('/^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?)(?:Z|[+-]\d{2}:\d{2})?)?$/', $raw, $match) !== 1) {
+        if (preg_match('/^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?)(?:Z|[+-]\d{2}:\d{2})?)?\z/', $raw, $match) !== 1) {
             throw new CorruptFile(sprintf('The date value "%s" is not an ISO 8601 date.', $raw));
         }
 
