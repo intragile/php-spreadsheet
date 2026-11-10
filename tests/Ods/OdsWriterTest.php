@@ -209,12 +209,15 @@ final class OdsWriterTest extends TestCase
      */
     public static function numberFormats(): iterable
     {
-        yield 'integer' => ['0', 'number-style', 'number:number{dp=0}'];
-        yield 'grouped' => ['#,##0', 'number-style', 'number:number{dp=0,g}'];
-        yield 'percent' => ['0%', 'percentage-style', 'number:number{dp=0},number:text=%'];
-        yield 'suffix literal' => ['#,##0 "Ft"', 'number-style', 'number:number{dp=0,g},number:text= Ft'];
-        yield 'prefix literal' => ['"$"0.00', 'number-style', 'number:text=$,number:number{dp=2}'];
-        yield 'escaped literal' => ['0.0\\x', 'number-style', 'number:number{dp=1},number:text=x'];
+        yield 'integer' => ['0', 'number-style', 'number:number{dp=0,min=0}'];
+        yield 'grouped' => ['#,##0', 'number-style', 'number:number{dp=0,min=0,g}'];
+        yield 'percent' => ['0%', 'percentage-style', 'number:number{dp=0,min=0},number:text=%'];
+        yield 'suffix literal' => ['#,##0 "Ft"', 'number-style', 'number:number{dp=0,min=0,g},number:text= Ft'];
+        yield 'prefix literal' => ['"$"0.00', 'number-style', 'number:text=$,number:number{dp=2,min=2}'];
+        yield 'escaped literal' => ['0.0\\x', 'number-style', 'number:number{dp=1,min=1},number:text=x'];
+        yield 'optional decimals' => ['0.##', 'number-style', 'number:number{dp=2,min=0}'];
+        yield 'mixed decimals' => ['#,##0.0#', 'number-style', 'number:number{dp=2,min=1,g}'];
+        yield 'space-padded decimals' => ['0.0??', 'number-style', 'number:number{dp=3,min=1}'];
         yield 'unsupported scientific' => ['0.00E+00', 'number-style', 'number:number{dp=-}'];
         yield 'unsupported fraction' => ['# ?/?', 'number-style', 'number:number{dp=-}'];
         yield 'general' => ['General', '', ''];
@@ -243,6 +246,10 @@ final class OdsWriterTest extends TestCase
             $attributes = [];
             $dp = $e->getAttributeNS(self::NS['number'], 'decimal-places');
             $attributes[] = 'dp='.($dp === '' ? '-' : $dp);
+
+            if ($e->hasAttributeNS(self::NS['number'], 'min-decimal-places')) {
+                $attributes[] = 'min='.$e->getAttributeNS(self::NS['number'], 'min-decimal-places');
+            }
 
             if ($e->getAttributeNS(self::NS['number'], 'grouping') === 'true') {
                 $attributes[] = 'g';

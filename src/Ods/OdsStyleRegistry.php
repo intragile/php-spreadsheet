@@ -270,7 +270,10 @@ final class OdsStyleRegistry
             return null;
         }
 
-        $number = '<number:number number:decimal-places="'.strlen($decimals).'" number:min-integer-digits="'.substr_count($integer, '0').'"'
+        // As LibreOffice writes it: decimal-places is the most decimals shown, min-decimal-places
+        // the zero-padded ones, so "0.##" shows 3.1 rather than 3.10. "#" and "?" are optional.
+        $number = '<number:number number:decimal-places="'.strlen($decimals).'" number:min-decimal-places="'.substr_count($decimals, '0').'"'
+            .' number:min-integer-digits="'.substr_count($integer, '0').'"'
             .(str_contains($integer, ',') ? ' number:grouping="true"' : '').'/>';
         $element = $percent ? 'percentage-style' : 'number-style';
 
