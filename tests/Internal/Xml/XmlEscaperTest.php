@@ -25,4 +25,14 @@ final class XmlEscaperTest extends TestCase
     {
         $this->assertSame('ab', XmlEscaper::text("a\xFFb"));
     }
+
+    public function test_is_legal_accepts_xml_characters_and_rejects_the_rest(): void
+    {
+        $this->assertTrue(XmlEscaper::isLegal("a\tb\nc\rd \u{1F600} \u{E1} <&>"));
+        $this->assertTrue(XmlEscaper::isLegal(''));
+        $this->assertFalse(XmlEscaper::isLegal("a\u{FFFE}b"));
+        $this->assertFalse(XmlEscaper::isLegal("a\u{FFFF}b"));
+        $this->assertFalse(XmlEscaper::isLegal("a\x01b"));
+        $this->assertFalse(XmlEscaper::isLegal("a\xFFb"));
+    }
 }

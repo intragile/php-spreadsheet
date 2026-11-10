@@ -8,6 +8,7 @@ use DateTimeInterface;
 use IntrAgile\Spreadsheet\Cell;
 use IntrAgile\Spreadsheet\Contracts\Writer;
 use IntrAgile\Spreadsheet\Exception\SpreadsheetException;
+use IntrAgile\Spreadsheet\Internal\NumberText;
 use IntrAgile\Spreadsheet\Internal\SheetName;
 use IntrAgile\Spreadsheet\Internal\TempFile;
 use IntrAgile\Spreadsheet\Internal\Xml\XmlEscaper;
@@ -94,6 +95,9 @@ final class OdsWriter implements Writer
 
     private bool $closed = false;
 
+    /** True once partial output was discarded; close() then reports that no file exists. */
+    private bool $aborted = false;
+
     public function __construct(private readonly string $path)
     {
         $this->styles = new OdsStyleRegistry;
@@ -139,6 +143,11 @@ final class OdsWriter implements Writer
 
             if ($r > self::MAX_ROWS) {
                 throw new SpreadsheetException(sprintf('A sheet holds at most %d rows.', self::MAX_ROWS));
+            }
+
+            // Counted rows are rejected before any XML is built; other iterables are checked below.
+            if (is_countable($values) && count($values) > self::MAX_COLUMNS) {
+                throw new SpreadsheetException(sprintf('Row %d has %d cells; a sheet holds at most %d columns.', $r, count($values), self::MAX_COLUMNS));
             }
 
             $rowAttribute = $this->styleAttribute($rowStyle);
@@ -193,7 +202,7 @@ final class OdsWriter implements Writer
                     $xml .= '<table:table-cell'.$attribute.' office:value-type="string">'.self::paragraphs($value).'</table:table-cell>';
                 } elseif (is_int($value) || is_float($value)) {
                     // The text:p is the display copy that readers ignoring office:value show.
-                    $number = is_int($value) ? (string) $value : self::number($value);
+                    $number = is_int($value) ? (string) $value : NumberText::fromFloat($value);
                     $xml .= '<table:table-cell'.$attribute.' office:value-type="float" office:value="'.$number.'"><text:p>'.$number.'</text:p></table:table-cell>';
                 } elseif (is_bool($value)) {
                     $xml .= '<table:table-cell'.$attribute.' office:value-type="boolean" office:boolean-value="'.($value ? 'true' : 'false').'"><text:p>'.($value ? 'TRUE' : 'FALSE').'</text:p></table:table-cell>';
@@ -247,9 +256,16 @@ final class OdsWriter implements Writer
         return $this;
     }
 
+    /**
+     * Throws a LogicException when an earlier failure aborted the write, so no file was written.
+     */
     public function close(): void
     {
         if ($this->closed) {
+            if ($this->aborted) {
+                throw new LogicException('The write was aborted by an earlier error; no file was written to '.$this->path.'.');
+            }
+
             return;
         }
 
@@ -595,7 +611,8 @@ final class OdsWriter implements Writer
 
     /**
      * The text:p elements of a string: one per line, with tabs and the spaces a reader would
-     * collapse (leading, trailing and repeated) spelled out, and characters XML cannot hold removed.
+     * collapse (leading, trailing, repeated or following a tab) spelled out, and characters XML
+     * cannot hold removed.
      */
     private static function paragraphs(string $value): string
     {
@@ -608,10 +625,11 @@ final class OdsWriter implements Writer
 
         foreach ($lines as $line) {
             $length = strlen($line);
-            $encoded = (string) preg_replace_callback('/ +/', static function (array $match) use ($length): string {
+            $encoded = (string) preg_replace_callback('/ +/', static function (array $match) use ($line, $length): string {
                 [$run, $offset] = $match[0];
                 $count = strlen($run);
-                $edge = $offset === 0 || $offset + $count === $length;
+                // A literal space is dropped at either end of a paragraph and right after a tab.
+                $edge = $offset === 0 || $offset + $count === $length || $line[$offset - 1] === "\t";
                 $spaces = $edge ? $count : $count - 1;
                 $element = $spaces === 1 ? '<text:s/>' : '<text:s text:c="'.$spaces.'"/>';
 
@@ -658,20 +676,6 @@ final class OdsWriter implements Writer
         }
 
         return XmlEscaper::text(implode('', $segments));
-    }
-
-    /**
-     * Shortest representation that round-trips, independent of the locale.
-     */
-    private static function number(float $value): string
-    {
-        if (! is_finite($value)) {
-            throw new InvalidArgumentException('Spreadsheet numbers must be finite; got '.var_export($value, true).'.');
-        }
-
-        $text = var_export($value, true);
-
-        return str_ends_with($text, '.0') ? substr($text, 0, -2) : $text;
     }
 
     private static function columnLetters(int $index): string
@@ -738,5 +742,6 @@ final class OdsWriter implements Writer
         $this->zipPath = null;
         $this->buffer = '';
         $this->closed = true;
+        $this->aborted = true;
     }
 }

@@ -7,6 +7,7 @@ namespace IntrAgile\Spreadsheet\Csv;
 use DateTimeInterface;
 use IntrAgile\Spreadsheet\Cell;
 use IntrAgile\Spreadsheet\Contracts\Writer;
+use IntrAgile\Spreadsheet\Internal\NumberText;
 use IntrAgile\Spreadsheet\Internal\TempFile;
 use IntrAgile\Spreadsheet\SheetOptions;
 use IntrAgile\Spreadsheet\Style;
@@ -37,6 +38,9 @@ final class CsvWriter implements Writer
     private bool $sheetStarted = false;
 
     private bool $closed = false;
+
+    /** True once partial output was discarded; close() then reports that no file exists. */
+    private bool $aborted = false;
 
     public function __construct(
         private readonly string $path,
@@ -111,9 +115,16 @@ final class CsvWriter implements Writer
         return $this;
     }
 
+    /**
+     * Throws a LogicException when an earlier failure aborted the write, so no file was written.
+     */
     public function close(): void
     {
         if ($this->closed) {
+            if ($this->aborted) {
+                throw new LogicException('The write was aborted by an earlier error; no file was written to '.$this->path.'.');
+            }
+
             return;
         }
 
@@ -183,6 +194,7 @@ final class CsvWriter implements Writer
         }
 
         $this->closed = true;
+        $this->aborted = true;
     }
 
     /**
@@ -203,23 +215,9 @@ final class CsvWriter implements Writer
             $value === null => '',
             is_bool($value) => $value ? '1' : '0',
             is_int($value) => (string) $value,
-            is_float($value) => $this->float($value),
+            is_float($value) => NumberText::fromFloat($value),
             $value instanceof DateTimeInterface => $value->format($value->format('His') === '000000' ? 'Y-m-d' : 'Y-m-d H:i:s'),
             default => throw new InvalidArgumentException(sprintf('Unsupported cell value of type %s in column %d.', get_debug_type($value), $column)),
         };
-    }
-
-    /**
-     * Shortest representation that round-trips, independent of the locale.
-     */
-    private function float(float $value): string
-    {
-        if (! is_finite($value)) {
-            throw new InvalidArgumentException('Spreadsheet numbers must be finite; got '.var_export($value, true).'.');
-        }
-
-        $text = var_export($value, true);
-
-        return str_ends_with($text, '.0') ? substr($text, 0, -2) : $text;
     }
 }

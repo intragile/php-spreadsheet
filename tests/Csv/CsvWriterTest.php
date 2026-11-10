@@ -218,7 +218,12 @@ final class CsvWriterTest extends TestCase
             } catch (RuntimeException) {
             }
 
-            $writer->close();
+            try {
+                $writer->close();
+                $this->fail('Expected exception');
+            } catch (LogicException $e) {
+                $this->assertStringContainsString('aborted', $e->getMessage());
+            }
 
             $this->assertSame([], glob($dir.'/*'));
         } finally {
@@ -271,6 +276,46 @@ final class CsvWriterTest extends TestCase
         $large = $this->writeRows(300_000);
 
         $this->assertLessThan(4 * 1024 * 1024, $large - $small);
+    }
+
+    public function test_close_after_abort_throws_and_writes_nothing(): void
+    {
+        $path = Fixtures::path('csv');
+        $writer = new CsvWriter($path);
+
+        try {
+            $writer->addRow([NAN]);
+            $this->fail('Expected exception');
+        } catch (InvalidArgumentException) {
+        }
+
+        try {
+            $writer->close();
+            $this->fail('Expected exception');
+        } catch (LogicException $e) {
+            $this->assertStringContainsString('aborted', $e->getMessage());
+            $this->assertStringContainsString('no file was written', $e->getMessage());
+        }
+
+        $this->assertFileDoesNotExist($path);
+    }
+
+    public function test_float_text_is_shortest_round_trip_regardless_of_ini_precision(): void
+    {
+        $path = Fixtures::path('csv');
+        $serialize = ini_get('serialize_precision');
+        $precision = ini_get('precision');
+        ini_set('serialize_precision', '5');
+        ini_set('precision', '3');
+
+        try {
+            (new CsvWriter($path))->addRow([-0.0, 1.0E+25, 1e-7, 0.1 + 0.2, PHP_FLOAT_MAX, 5e-324, 1e16, 2.5])->close();
+        } finally {
+            ini_set('serialize_precision', (string) $serialize);
+            ini_set('precision', (string) $precision);
+        }
+
+        $this->assertSame(implode(',', ['0', '1.0E+25', '1.0E-7', '0.30000000000000004', '1.7976931348623157E+308', '5.0E-324', '10000000000000000', '2.5'])."\r\n", file_get_contents($path));
     }
 
     private function writeRows(int $count): int

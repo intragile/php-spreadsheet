@@ -98,6 +98,22 @@ final class OdsWriterTest extends TestCase
         $this->assertStringContainsString('<text:p>multi</text:p><text:p>line</text:p>', $content);
     }
 
+    public function test_spaces_next_to_tabs_survive_whitespace_collapsing(): void
+    {
+        $path = Fixtures::path('ods');
+        $strings = ["a\t b", ' lead', 'a  b', 'trail ', "a\t  b", "\t x", "a \tb", "x\t\t y"];
+        (new OdsWriter($path))->addRow($strings)->close();
+
+        $this->assertSame($strings, self::readRows($path)[1]);
+
+        // ODF collapses a literal space at the start of a paragraph or right after a tab, so every
+        // such space must be a text:s element.
+        $content = self::part($path, 'content.xml');
+        $this->assertDoesNotMatchRegularExpression('#(<text:tab/>|<text:p>) #', $content);
+        $this->assertStringContainsString('<text:p>a<text:tab/><text:s/>b</text:p>', $content);
+        $this->assertStringContainsString('<text:p>a<text:tab/><text:s text:c="2"/>b</text:p>', $content);
+    }
+
     public function test_styles_bold_fill_numberformat(): void
     {
         $path = Fixtures::path('ods');
@@ -209,12 +225,15 @@ final class OdsWriterTest extends TestCase
      */
     public static function numberFormats(): iterable
     {
-        yield 'integer' => ['0', 'number-style', 'number:number{dp=0}'];
-        yield 'grouped' => ['#,##0', 'number-style', 'number:number{dp=0,g}'];
-        yield 'percent' => ['0%', 'percentage-style', 'number:number{dp=0},number:text=%'];
-        yield 'suffix literal' => ['#,##0 "Ft"', 'number-style', 'number:number{dp=0,g},number:text= Ft'];
-        yield 'prefix literal' => ['"$"0.00', 'number-style', 'number:text=$,number:number{dp=2}'];
-        yield 'escaped literal' => ['0.0\\x', 'number-style', 'number:number{dp=1},number:text=x'];
+        yield 'integer' => ['0', 'number-style', 'number:number{dp=0,min=0}'];
+        yield 'grouped' => ['#,##0', 'number-style', 'number:number{dp=0,min=0,g}'];
+        yield 'percent' => ['0%', 'percentage-style', 'number:number{dp=0,min=0},number:text=%'];
+        yield 'suffix literal' => ['#,##0 "Ft"', 'number-style', 'number:number{dp=0,min=0,g},number:text= Ft'];
+        yield 'prefix literal' => ['"$"0.00', 'number-style', 'number:text=$,number:number{dp=2,min=2}'];
+        yield 'escaped literal' => ['0.0\\x', 'number-style', 'number:number{dp=1,min=1},number:text=x'];
+        yield 'optional decimals' => ['0.##', 'number-style', 'number:number{dp=2,min=0}'];
+        yield 'mixed decimals' => ['#,##0.0#', 'number-style', 'number:number{dp=2,min=1,g}'];
+        yield 'space-padded decimals' => ['0.0??', 'number-style', 'number:number{dp=3,min=1}'];
         yield 'unsupported scientific' => ['0.00E+00', 'number-style', 'number:number{dp=-}'];
         yield 'unsupported fraction' => ['# ?/?', 'number-style', 'number:number{dp=-}'];
         yield 'general' => ['General', '', ''];
@@ -243,6 +262,10 @@ final class OdsWriterTest extends TestCase
             $attributes = [];
             $dp = $e->getAttributeNS(self::NS['number'], 'decimal-places');
             $attributes[] = 'dp='.($dp === '' ? '-' : $dp);
+
+            if ($e->hasAttributeNS(self::NS['number'], 'min-decimal-places')) {
+                $attributes[] = 'min='.$e->getAttributeNS(self::NS['number'], 'min-decimal-places');
+            }
 
             if ($e->getAttributeNS(self::NS['number'], 'grouping') === 'true') {
                 $attributes[] = 'g';
@@ -300,6 +323,37 @@ final class OdsWriterTest extends TestCase
 
         $this->expectException(LogicException::class);
         $writer->addRow([1]);
+    }
+
+    public function test_too_many_columns_is_rejected_before_the_row_is_built(): void
+    {
+        $row = new class implements \Countable, \IteratorAggregate
+        {
+            public function count(): int
+            {
+                return 16385;
+            }
+
+            public function getIterator(): \Iterator
+            {
+                throw new LogicException('The oversized row was iterated.');
+            }
+        };
+
+        $this->expectException(SpreadsheetException::class);
+        $this->expectExceptionMessage('16384 columns');
+
+        (new OdsWriter(Fixtures::path('ods')))->addRow($row);
+    }
+
+    public function test_too_many_columns_from_a_generator_still_throws(): void
+    {
+        $this->expectException(SpreadsheetException::class);
+        $this->expectExceptionMessage('16384 columns');
+
+        (new OdsWriter(Fixtures::path('ods')))->addRow((static function (): Generator {
+            yield from array_fill(0, 16385, 1);
+        })());
     }
 
     public function test_column_widths_and_freeze(): void
@@ -418,6 +472,7 @@ final class OdsWriterTest extends TestCase
         yield 'empty' => [[''], '""'];
         yield 'apostrophe edge' => [["'quoted'"], "'quoted'"];
         yield 'control char' => [["a\x01b"], 'a'];
+        yield 'xml-illegal U+FFFE' => [["a\u{FFFE}b"], 'cannot hold in XML'];
         yield 'duplicate ignoring case' => [['Sheet1', 'sheet1'], 'sheet1'];
         yield 'duplicate ignoring accent case' => [['Árvíz', 'árvíz'], 'árvíz'];
     }
@@ -629,7 +684,12 @@ final class OdsWriterTest extends TestCase
                 $this->assertSame('boom', $e->getMessage());
             }
 
-            $writer->close();
+            try {
+                $writer->close();
+                $this->fail('Expected exception');
+            } catch (LogicException $e) {
+                $this->assertStringContainsString('aborted', $e->getMessage());
+            }
 
             $this->assertSame([], glob($dir.'/*'));
         } finally {
@@ -728,7 +788,12 @@ final class OdsWriterTest extends TestCase
             }
 
             $this->assertSame([], glob($dir.'/*'));
-            $writer->close();
+            try {
+                $writer->close();
+                $this->fail('Expected exception');
+            } catch (LogicException $e) {
+                $this->assertStringContainsString('aborted', $e->getMessage());
+            }
         } finally {
             self::removeDirectory($dir);
         }
@@ -782,6 +847,47 @@ final class OdsWriterTest extends TestCase
         $large = $this->writeRows(300_000);
 
         $this->assertLessThan(8 * 1024 * 1024, $large - $small);
+    }
+
+    public function test_close_after_abort_throws_and_writes_nothing(): void
+    {
+        $path = Fixtures::path('ods');
+        $writer = new OdsWriter($path);
+
+        try {
+            $writer->addRow([NAN]);
+            $this->fail('Expected exception');
+        } catch (InvalidArgumentException) {
+        }
+
+        try {
+            $writer->close();
+            $this->fail('Expected exception');
+        } catch (LogicException $e) {
+            $this->assertStringContainsString('aborted', $e->getMessage());
+            $this->assertStringContainsString('no file was written', $e->getMessage());
+        }
+
+        $this->assertFileDoesNotExist($path);
+    }
+
+    public function test_float_text_is_shortest_round_trip_regardless_of_ini_precision(): void
+    {
+        $path = Fixtures::path('ods');
+        $serialize = ini_get('serialize_precision');
+        $precision = ini_get('precision');
+        ini_set('serialize_precision', '5');
+        ini_set('precision', '3');
+
+        try {
+            (new OdsWriter($path))->addRow([-0.0, 1.0E+25, 1e-7, 0.1 + 0.2, PHP_FLOAT_MAX, 5e-324, 1e16, 2.5])->close();
+        } finally {
+            ini_set('serialize_precision', (string) $serialize);
+            ini_set('precision', (string) $precision);
+        }
+
+        preg_match_all('#office:value="([^"]*)"#', self::part($path, 'content.xml'), $m);
+        $this->assertSame(['0', '1.0E+25', '1.0E-7', '0.30000000000000004', '1.7976931348623157E+308', '5.0E-324', '10000000000000000', '2.5'], $m[1]);
     }
 
     private function writeRows(int $count): int
